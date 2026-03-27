@@ -1,12 +1,13 @@
 # pVPN
 
-A Proton VPN client for Linux with TUI and CLI interfaces. Daemon-based architecture -- VPN persists when the TUI closes.
+A fast, lightweight **Proton VPN client for Linux** with a terminal UI. Written in Go.
 
-Works with **NetworkManager**, **systemd-networkd + iwd**, or bare setups -- auto-detects your network stack.
+Daemon-based architecture — the VPN stays connected when you close the TUI. Works with **NetworkManager**, **systemd-networkd + iwd**, or bare setups — auto-detects your network stack.
 
-## Why
-
-The official Proton VPN Linux clients depend on NetworkManager via `libnm`. If you run systemd-networkd, iwd, or anything else -- they don't work. pVPN doesn't care what you run. It also implements Stealth (WireGuard-over-TLS), which the official Linux client lacks entirely.
+Unlike the official Proton VPN Linux app, pVPN:
+- **Doesn't require NetworkManager** — works on any network setup
+- **Supports Stealth protocol** (WireGuard-over-TLS) — bypasses DPI and firewalls
+- **Runs as a lightweight daemon** — no Electron, no Python, just Go binaries
 
 ## Features
 
@@ -35,26 +36,30 @@ The official Proton VPN Linux clients depend on NetworkManager via `libnm`. If y
 ### AUR (Arch Linux)
 
 ```bash
-yay -S pvpn
-sudo systemctl enable --now pvpnd
+yay -S pvpn-go
 ```
+
+The daemon is enabled automatically. Just run `pvpn`.
 
 ### From source
 
 ```bash
-git clone https://github.com/grennboy527/pvpn.git
-cd pvpn
+git clone https://github.com/grennboy527/pVPN.git
+cd pVPN
 sudo make install
 sudo systemctl daemon-reload
 sudo systemctl enable --now pvpnd
+pvpn
 ```
 
 ### Uninstall
 
 ```bash
+# AUR
+yay -R pvpn-go
+
+# From source
 sudo make uninstall
-# or
-./uninstall.sh
 ```
 
 ## Build
