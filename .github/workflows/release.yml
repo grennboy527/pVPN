@@ -36,3 +36,44 @@ jobs:
             pvpn
             pvpnd
             pvpnctl
+
+  aur-publish:
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - name: Set up SSH for AUR
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AUR_SSH_KEY }}" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan -t ed25519 aur.archlinux.org >> ~/.ssh/known_hosts
+          cat >> ~/.ssh/config <<'SSHEOF'
+          Host aur.archlinux.org
+            IdentityFile ~/.ssh/aur
+            User aur
+          SSHEOF
+
+      - name: Clone AUR repo
+        run: git clone ssh://aur@aur.archlinux.org/pvpn-go.git aur
+
+      - name: Update version and push
+        run: |
+          cd aur
+          VERSION=${GITHUB_REF_NAME#v}
+          OLD_VERSION=$(grep -oP '(?<=pkgver=).*' PKGBUILD)
+
+          # Update PKGBUILD
+          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+
+          # Update .SRCINFO (same fields, different format)
+          sed -i "s/pkgver = .*/pkgver = ${VERSION}/" .SRCINFO
+          sed -i "s/pkgrel = .*/pkgrel = 1/" .SRCINFO
+          sed -i "s/${OLD_VERSION}/${VERSION}/g" .SRCINFO
+
+          git config user.email "paul.goessmann@proton.me"
+          git config user.name "YourDoritos"
+          git add PKGBUILD .SRCINFO
+          git diff --cached --quiet && echo "No version change" && exit 0
+          git commit -m "Update to v${VERSION}"
+          git push
