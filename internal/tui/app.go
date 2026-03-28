@@ -87,6 +87,11 @@ func (a App) contentHeight() int {
 	return a.height - navHeight
 }
 
+// IsDaemonMode returns true if the TUI is connected to the daemon via IPC.
+func (a App) IsDaemonMode() bool {
+	return a.daemonMode
+}
+
 func (a App) Init() tea.Cmd {
 	return a.tryConnect()
 }
@@ -188,10 +193,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "1":
 				a.view = ViewStatus
 				if a.daemonMode {
+					if a.status.state == "reconnecting" || a.status.state == "connecting" {
+						return a, SpinnerTickCmd()
+					}
 					return a, a.pollDaemonStatus()
 				}
 				if a.conn != nil && a.conn.State() == vpn.StateConnected {
 					return a, TickCmd()
+				}
+				if a.status.state == "reconnecting" || a.status.state == "connecting" {
+					return a, SpinnerTickCmd()
 				}
 				return a, nil
 			case "2":
@@ -309,6 +320,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case VPNStateChangedMsg:
 		switch msg.State {
 		case vpn.StateReconnecting:
+			a.view = ViewStatus
 			a.status.SetReconnecting()
 			a.servers.SetVPNState("connecting")
 			return a, SpinnerTickCmd()
@@ -573,6 +585,7 @@ func (a App) handleDaemonEvent(evt *ipc.Event) (tea.Model, tea.Cmd) {
 			a.servers.SetConnectedServer(data.Server)
 			return a, TickCmd()
 		case "Reconnecting":
+			a.view = ViewStatus
 			a.status.SetReconnecting()
 			a.servers.SetVPNState("connecting")
 			return a, SpinnerTickCmd()

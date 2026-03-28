@@ -3,6 +3,7 @@ package vpn
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"sync"
 	"time"
@@ -466,12 +467,14 @@ func (c *Connection) monitorConnection() {
 				if c.State() != StateConnected {
 					return
 				}
+				log.Printf("System resumed from sleep, checking connection...")
 				if c.onLog != nil {
 					c.onLog("System resumed from sleep, checking connection...")
 				}
 				// Wait for the network to come back (WiFi reconnect, DHCP, etc.)
 				// then check whether the tunnel survived suspend.
 				if !c.waitForNetwork(ctx, 15*time.Second) {
+					log.Printf("Network not available after wake, triggering reconnect")
 					c.setState(StateReconnecting)
 					if c.onLog != nil {
 						c.onLog("Network not available after wake, reconnecting...")
@@ -481,6 +484,7 @@ func (c *Connection) monitorConnection() {
 				}
 				stats, err := c.Stats()
 				if err != nil || time.Since(stats.LastHandshake) > 30*time.Second {
+					log.Printf("Connection stale after wake (err=%v), triggering reconnect", err)
 					c.setState(StateReconnecting)
 					if c.onLog != nil {
 						c.onLog("Connection stale after wake, reconnecting...")
@@ -488,6 +492,7 @@ func (c *Connection) monitorConnection() {
 					c.doReconnect(ctx)
 					return
 				}
+				log.Printf("Connection still healthy after wake")
 				if c.onLog != nil {
 					c.onLog("Connection still healthy after wake")
 				}
@@ -582,10 +587,10 @@ func (c *Connection) doReconnect(ctx context.Context) {
 			continue
 		}
 
+		log.Printf("Reconnect attempt %d...", attempt)
 		if c.onLog != nil {
 			c.onLog(fmt.Sprintf("Reconnect attempt %d...", attempt))
 		}
-		c.setState(StateReconnecting)
 
 		kp, err := api.GenerateKeyPair()
 		if err != nil {
@@ -598,7 +603,17 @@ func (c *Connection) doReconnect(ctx context.Context) {
 				goto retry
 			}
 
-			err = c.connectWithProtocol(ctx, server, kp, cert, certFeats, ks, protocol, customDNS, 15*time.Second)
+			// Call doConnect directly — NOT connectWithProtocol — so we
+			// control state ourselves. connectWithProtocol would broadcast
+			// StateDisconnected on every failed attempt, confusing the TUI.
+			c.mu.Lock()
+			c.protocol = protocol
+			c.mu.Unlock()
+
+			err = c.doConnect(ctx, server, kp, cert, certFeats, ks, protocol, customDNS, 15*time.Second)
+			if err != nil {
+				log.Printf("Reconnect attempt %d failed: %v", attempt, err)
+			}
 			if err == nil {
 				// Close the API pinhole now that we're connected
 				if hasKillSwitch {
@@ -609,12 +624,15 @@ func (c *Connection) doReconnect(ctx context.Context) {
 						activeKS.BlockAPITraffic()
 					}
 				}
+				log.Printf("Reconnected successfully")
 				if c.onLog != nil {
 					c.onLog("Reconnected successfully")
 				}
 				c.monitorConnection()
 				return
 			}
+			// Clean up partial state from failed attempt, keep kill switch
+			c.teardown(hasKillSwitch)
 		}
 
 	retry:
