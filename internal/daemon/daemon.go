@@ -432,6 +432,9 @@ func (d *Daemon) doConnect(server *api.LogicalServer, protocol string) error {
 	d.conn = conn
 	d.mu.Unlock()
 
+	// Reload config from disk before saving so we don't clobber settings
+	// changed by the TUI (e.g., kill switch, protocol) with stale values.
+	d.cfg.Reload()
 	d.cfg.Server.LastServer = server.Name
 	d.cfg.Server.LastCountry = server.ExitCountry
 	d.cfg.AddHistory(server.Name)

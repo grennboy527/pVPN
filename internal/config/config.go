@@ -125,3 +125,14 @@ func (c *Config) Save() error {
 	FixFileOwnership(path)
 	return nil
 }
+
+// Reload re-reads the config from disk into this struct, picking up any
+// changes made by other processes. Call this before modifying + Save()
+// to avoid clobbering changes from the TUI or daemon.
+func (c *Config) Reload() {
+	fresh, err := Load()
+	if err != nil {
+		return
+	}
+	*c = *fresh
+}

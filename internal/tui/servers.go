@@ -420,6 +420,9 @@ func (m ServersModel) updateServerList(msg tea.KeyMsg, cfg *config.Config) (Serv
 }
 
 func (m *ServersModel) saveAndPersist(cfg *config.Config) {
+	if cfg != nil {
+		cfg.Reload()
+	}
 	m.SaveFilters(cfg)
 	if cfg != nil {
 		cfg.Save()

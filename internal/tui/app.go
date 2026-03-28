@@ -542,6 +542,7 @@ func connectToServer(client *api.Client, cfg *config.Config, server *api.Logical
 			return connectErrorMsg{Err: err}
 		}
 
+		cfg.Reload()
 		cfg.Server.LastServer = server.Name
 		cfg.Server.LastCountry = server.ExitCountry
 		cfg.AddHistory(server.Name)
