@@ -143,7 +143,12 @@ func (a App) tryConnect() tea.Cmd {
 		ctx := context.Background()
 		info, err := a.client.GetVPNInfo(ctx)
 		if err != nil {
-			a.client.SetSession("", "", "")
+			// Only clear session on permanent auth errors, not transient failures
+			if api.IsAuthError(err) {
+				a.client.SetSession("", "", "")
+				return sessionExpiredMsg{}
+			}
+			// Transient error — keep session, still show login so user can retry
 			return sessionExpiredMsg{}
 		}
 		return sessionRestoredMsg{VPNInfo: info}

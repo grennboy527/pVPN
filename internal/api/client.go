@@ -103,6 +103,34 @@ func (e *RequestError) Error() string {
 	return fmt.Sprintf("API error %d (HTTP %d): %s", e.Code, e.HTTPStatus, e.Message)
 }
 
+// IsAuthError returns true if this error indicates the session is permanently
+// dead and the user must re-login (e.g. refresh token revoked, account
+// disabled). Transient errors (network, timeout, 5xx) return false.
+func (e *RequestError) IsAuthError() bool {
+	switch e.Code {
+	case 10013: // Refresh token invalid — must re-authenticate
+		return true
+	case 10002: // Account deleted
+		return true
+	case 10003: // Account disabled
+		return true
+	}
+	// Any 401 that isn't handled by token refresh is a dead session
+	return e.HTTPStatus == 401
+}
+
+// IsAuthError checks whether an error represents a permanent auth failure.
+// Returns false for network errors, timeouts, and other transient issues.
+func IsAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if reqErr, ok := err.(*RequestError); ok {
+		return reqErr.IsAuthError()
+	}
+	return false
+}
+
 // doRequest executes an HTTP request with auth headers and retry logic.
 // It automatically refreshes tokens on 401.
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}, result interface{}) error {
@@ -134,6 +162,11 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 		case 401:
 			// Try to refresh tokens
 			if refreshErr := c.refreshTokens(ctx); refreshErr != nil {
+				// Check if the refresh itself got a permanent auth error
+				// (e.g. error 10013 = refresh token revoked)
+				if IsAuthError(refreshErr) {
+					return refreshErr
+				}
 				return fmt.Errorf("token refresh failed: %w (original: %w)", refreshErr, err)
 			}
 			continue // Retry with new tokens

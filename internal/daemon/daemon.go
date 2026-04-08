@@ -140,8 +140,16 @@ func (d *Daemon) initSession() {
 
 	info, err := d.client.GetVPNInfo(ctx)
 	if err != nil {
-		log.Printf("Session invalid: %v", err)
-		d.client.SetSession("", "", "")
+		// Only clear the session for permanent auth errors (revoked token,
+		// disabled account, etc.). Transient errors (network timeout, DNS
+		// not ready at boot, API hiccup) should NOT destroy the session —
+		// the tokens may still be perfectly valid.
+		if api.IsAuthError(err) {
+			log.Printf("Session invalid (auth error): %v", err)
+			d.client.SetSession("", "", "")
+		} else {
+			log.Printf("Session validation failed (transient, keeping session): %v", err)
+		}
 		return
 	}
 	d.mu.Lock()

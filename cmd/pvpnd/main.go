@@ -50,10 +50,17 @@ func run() error {
 
 	client := api.NewClient(session)
 	client.OnTokenRefresh = func(uid, accessToken, refreshToken string) {
+		// Load the existing session first to preserve fields like
+		// LoginEmail and PrivateKey that aren't part of the refresh response.
+		existing, _ := store.Load()
 		s := &api.Session{
 			UID:          uid,
 			AccessToken:  accessToken,
 			RefreshToken: refreshToken,
+		}
+		if existing != nil {
+			s.LoginEmail = existing.LoginEmail
+			s.PrivateKey = existing.PrivateKey
 		}
 		if saveErr := store.Save(s); saveErr != nil {
 			log.Printf("Warning: failed to persist session: %v", saveErr)

@@ -40,7 +40,14 @@ func run() error {
 
 	client := api.NewClient(session)
 	client.OnTokenRefresh = func(uid, accessToken, refreshToken string) {
+		// Load existing session to preserve LoginEmail and PrivateKey
+		// which aren't part of the refresh response.
+		existing, _ := store.Load()
 		s := &api.Session{UID: uid, AccessToken: accessToken, RefreshToken: refreshToken}
+		if existing != nil {
+			s.LoginEmail = existing.LoginEmail
+			s.PrivateKey = existing.PrivateKey
+		}
 		store.Save(s)
 	}
 
