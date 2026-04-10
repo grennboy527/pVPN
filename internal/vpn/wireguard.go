@@ -96,10 +96,10 @@ func (m *WireGuardManager) Up(cfg *WireGuardConfig) error {
 		Peers: []wgtypes.PeerConfig{
 			{
 				PublicKey:                   pubKey,
-				Endpoint:                   endpointAddr,
+				Endpoint:                    endpointAddr,
 				PersistentKeepaliveInterval: &keepalive,
-				ReplaceAllowedIPs:          true,
-				AllowedIPs:                 []net.IPNet{*allIPv4},
+				ReplaceAllowedIPs:           true,
+				AllowedIPs:                  []net.IPNet{*allIPv4},
 			},
 		},
 	}

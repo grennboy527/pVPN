@@ -12,13 +12,15 @@ import (
 //
 // How it works:
 // 1. WireGuard device is configured with FwMark (set in wireguard.go)
-//    - All encapsulated packets leaving WG get this mark automatically
+//   - All encapsulated packets leaving WG get this mark automatically
+//
 // 2. ip rule: packets WITH fwmark -> use main table (normal routing to VPN server)
 // 3. ip rule: packets WITHOUT fwmark -> use VPN table (route through tunnel)
 // 4. VPN table has default route through pvpn0
 //
 // Flow: app packet -> no mark -> VPN table -> pvpn0 -> WG encrypts -> marks packet
-//       -> main table -> real gateway -> VPN server
+//
+//	-> main table -> real gateway -> VPN server
 type RouteManager struct {
 	link  netlink.Link
 	rules []*netlink.Rule
@@ -98,9 +100,8 @@ func (rm *RouteManager) Up() error {
 		Table: RouteTable,
 		Type:  unix.RTN_BLACKHOLE,
 	}
-	if err := netlink.RouteAdd(v6Blackhole); err != nil {
-		// Non-fatal — IPv6 just won't fail fast
-	}
+	// Non-fatal — IPv6 just won't fail fast if this errors.
+	_ = netlink.RouteAdd(v6Blackhole)
 
 	// Suppress prefixlength rule: prevents packets from leaking via
 	// longest-prefix match in the main table when VPN table has no match

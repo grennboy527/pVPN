@@ -64,16 +64,16 @@ type Connection struct {
 	client     *api.Client
 	dnsBackend network.DNSBackend
 
-	wg        *WireGuardManager
+	wg         *WireGuardManager
 	stealthMgr *stealth.StealthManager
-	routes    *RouteManager
-	ks        *KillSwitch
-	la        *LocalAgent
-	portFwd   *PortForwarder
-	info      ConnectionInfo
-	protocol  string // "wireguard" or "stealth"
-	onState   func(State)
-	onLog     func(string)
+	routes     *RouteManager
+	ks         *KillSwitch
+	la         *LocalAgent
+	portFwd    *PortForwarder
+	info       ConnectionInfo
+	protocol   string // "wireguard" or "stealth"
+	onState    func(State)
+	onLog      func(string)
 
 	// Reconnection state
 	reconnect       bool
@@ -473,20 +473,22 @@ func (c *Connection) TriggerReconnect() {
 }
 
 // monitorConnection watches the WireGuard handshake and triggers
-// reconnection if the tunnel goes stale.
+// reconnection if the tunnel goes stale. A cancelable context is always
+// installed so Disconnect() can stop the monitor even when automatic
+// reconnection is disabled.
 func (c *Connection) monitorConnection() {
-	c.mu.RLock()
-	reconnect := c.reconnect
-	c.mu.RUnlock()
-
-	if !reconnect {
-		return
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	c.mu.Lock()
 	c.reconnectCancel = cancel
+	reconnect := c.reconnect
 	c.mu.Unlock()
+
+	if !reconnect {
+		// No monitoring needed, but keep the cancel installed so the
+		// goroutine-free path stays consistent with the reconnect path.
+		cancel()
+		return
+	}
 
 	go func() {
 		missedHandshakes := 0
@@ -591,6 +593,7 @@ func (c *Connection) doReconnect(ctx context.Context) {
 	maxBackoff := 2 * time.Minute
 	pinholeOpen := false
 
+retryLoop:
 	for attempt := 1; ; attempt++ {
 		select {
 		case <-ctx.Done():
@@ -632,50 +635,17 @@ func (c *Connection) doReconnect(ctx context.Context) {
 			c.onLog(fmt.Sprintf("Reconnect attempt %d...", attempt))
 		}
 
-		kp, err := api.GenerateKeyPair()
-		if err != nil {
-			goto retry
+		err := c.reconnectAttempt(ctx, server, certFeats, ks, protocol, customDNS, hasKillSwitch)
+		if err == nil {
+			log.Printf("Reconnected successfully")
+			if c.onLog != nil {
+				c.onLog("Reconnected successfully")
+			}
+			c.monitorConnection()
+			return
 		}
+		log.Printf("Reconnect attempt %d failed: %v", attempt, err)
 
-		{
-			cert, err := c.client.RequestCert(ctx, kp, certFeats)
-			if err != nil {
-				goto retry
-			}
-
-			// Call doConnect directly — NOT connectWithProtocol — so we
-			// control state ourselves. connectWithProtocol would broadcast
-			// StateDisconnected on every failed attempt, confusing the TUI.
-			c.mu.Lock()
-			c.protocol = protocol
-			c.mu.Unlock()
-
-			err = c.doConnect(ctx, server, kp, cert, certFeats, ks, protocol, customDNS, 15*time.Second)
-			if err != nil {
-				log.Printf("Reconnect attempt %d failed: %v", attempt, err)
-			}
-			if err == nil {
-				// Close the API pinhole now that we're connected
-				if hasKillSwitch {
-					c.mu.RLock()
-					activeKS := c.ks
-					c.mu.RUnlock()
-					if activeKS != nil {
-						activeKS.BlockAPITraffic()
-					}
-				}
-				log.Printf("Reconnected successfully")
-				if c.onLog != nil {
-					c.onLog("Reconnected successfully")
-				}
-				c.monitorConnection()
-				return
-			}
-			// Clean up partial state from failed attempt, keep kill switch
-			c.teardown(hasKillSwitch)
-		}
-
-	retry:
 		// Wait for backoff, but allow wake signal to skip the wait
 		select {
 		case <-ctx.Done():
@@ -687,15 +657,63 @@ func (c *Connection) doReconnect(ctx context.Context) {
 		case <-c.wakeCh:
 			// System woke up — retry immediately with reset backoff
 			backoff = 2 * time.Second
-			continue
+			continue retryLoop
 		case <-time.After(backoff):
 		}
 
-		backoff *= 2
-		if backoff > maxBackoff {
-			backoff = maxBackoff
+		backoff = nextBackoff(backoff, maxBackoff)
+	}
+}
+
+// reconnectAttempt performs a single reconnect attempt: generate keys,
+// request a cert, and call doConnect. Returns nil on success. On error
+// it tears down any partial state (preserving the kill switch). It is
+// split out from doReconnect so the outer backoff loop reads linearly
+// without goto.
+func (c *Connection) reconnectAttempt(ctx context.Context, server *api.LogicalServer, certFeats api.CertificateFeatures, ks bool, protocol string, customDNS []string, hasKillSwitch bool) error {
+	kp, err := api.GenerateKeyPair()
+	if err != nil {
+		return fmt.Errorf("keygen: %w", err)
+	}
+
+	cert, err := c.client.RequestCert(ctx, kp, certFeats)
+	if err != nil {
+		return fmt.Errorf("request cert: %w", err)
+	}
+
+	// Call doConnect directly — NOT connectWithProtocol — so we
+	// control state ourselves. connectWithProtocol would broadcast
+	// StateDisconnected on every failed attempt, confusing the TUI.
+	c.mu.Lock()
+	c.protocol = protocol
+	c.mu.Unlock()
+
+	if err := c.doConnect(ctx, server, kp, cert, certFeats, ks, protocol, customDNS, 15*time.Second); err != nil {
+		// Clean up partial state from failed attempt, keep kill switch
+		c.teardown(hasKillSwitch)
+		return err
+	}
+
+	// Close the API pinhole now that we're connected
+	if hasKillSwitch {
+		c.mu.RLock()
+		activeKS := c.ks
+		c.mu.RUnlock()
+		if activeKS != nil {
+			activeKS.BlockAPITraffic()
 		}
 	}
+	return nil
+}
+
+// nextBackoff doubles the current backoff duration, capped at cap.
+// Extracted for unit testing.
+func nextBackoff(current, ceiling time.Duration) time.Duration {
+	next := current * 2
+	if next > ceiling {
+		return ceiling
+	}
+	return next
 }
 
 // waitForNetwork polls until a default gateway is present in the main routing

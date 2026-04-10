@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	tableName     = "pvpn_killswitch"
-	reconnectSet  = "pvpn_reconnect" // named set for temporary API IPs
+	tableName    = "pvpn_killswitch"
+	reconnectSet = "pvpn_reconnect" // named set for temporary API IPs
 )
 
 // KillSwitch manages nftables rules that block all non-VPN traffic.

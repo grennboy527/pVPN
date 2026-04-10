@@ -55,8 +55,8 @@ type LocalAgent struct {
 	conn *localAgent.AgentConnection
 
 	// State tracking
-	state  string
-	status *localAgent.StatusMessage
+	state   string
+	status  *localAgent.StatusMessage
 	lastErr error
 
 	// Channels for synchronization
@@ -84,11 +84,11 @@ func NewLocalAgent(kp *api.KeyPair, cert *api.CertificateResponse, serverDomain 
 		ProtonVPNRootCA,
 		LocalAgentHost,
 		serverDomain,
-		la,       // implements NativeClient
+		la, // implements NativeClient
 		features,
-		true,     // connectivity available
-		0,        // default keepalive
-		0,        // default keepalive max count
+		true, // connectivity available
+		0,    // default keepalive
+		0,    // default keepalive max count
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create local agent connection: %w", err)
