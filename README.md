@@ -27,11 +27,29 @@ Unlike the official Proton VPN Linux app, pVPN:
 
 ## Requirements
 
-- Linux (kernel 5.6+ for WireGuard)
-- Go 1.22+ (build only)
+- Linux with systemd
+- Kernel 5.6+ (for WireGuard)
+- `x86_64` (other architectures: build from source)
 - A Proton VPN account (Plus or higher for most servers)
 
 ## Install
+
+### One-liner (any Linux distro)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/YourDoritos/pVPN/main/install.sh | sudo bash
+```
+
+This fetches the latest prebuilt binaries from the GitHub release, verifies
+checksums, installs the systemd unit, and creates a `pvpn` group so you can
+talk to the daemon without `sudo`. Your user is added to the group
+automatically — open a new shell (or run `newgrp pvpn`) to pick it up.
+
+Pin a specific version:
+
+```bash
+PVPN_VERSION=v0.2.0 curl -fsSL https://raw.githubusercontent.com/YourDoritos/pVPN/main/install.sh | sudo -E bash
+```
 
 ### AUR (Arch Linux)
 
@@ -39,24 +57,33 @@ Unlike the official Proton VPN Linux app, pVPN:
 yay -S pvpn-go
 ```
 
-The daemon is enabled automatically. Just run `pvpn`.
+The daemon is enabled automatically and the `pvpn` group is created.
+Add yourself to the group with `sudo usermod -aG pvpn $USER`, then run `pvpn`.
 
-### From source
+### Build from source
+
+Requires Go 1.26+ (see `go.mod`).
 
 ```bash
 git clone https://github.com/YourDoritos/pVPN.git
 cd pVPN
 sudo make install
+sudo groupadd -r pvpn   # unprivileged IPC access
+sudo usermod -aG pvpn $USER
 sudo systemctl daemon-reload
 sudo systemctl enable --now pvpnd
+# open a new shell (or: newgrp pvpn)
 pvpn
 ```
 
 ### Uninstall
 
 ```bash
+# One-liner (preserves ~/.config/pvpn by default; add --purge to wipe it)
+curl -fsSL https://raw.githubusercontent.com/YourDoritos/pVPN/main/uninstall.sh | sudo bash
+
 # AUR
-yay -R pvpn-go
+sudo pacman -Rns pvpn-go
 
 # From source
 sudo make uninstall
