@@ -13,5 +13,17 @@ RuntimeDirectory=pvpn
 # Network control permissions
 ReadWritePaths=/run/pvpn /etc/resolv.conf
 
+# --- Conservative sandboxing ---
+# These are known-safe for a WireGuard-managing root daemon. Stronger
+# options (NoNewPrivileges, ProtectSystem=strict, CapabilityBoundingSet,
+# RestrictAddressFamilies) are deliberately left off because they can
+# break netlink / nftables / DNS manipulation on some systems and need
+# per-system testing.
+ProtectHome=true
+PrivateTmp=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+
 [Install]
 WantedBy=multi-user.target
