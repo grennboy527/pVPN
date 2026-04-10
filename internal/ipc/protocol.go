@@ -52,19 +52,19 @@ type SettingsSetParams struct {
 // --- Response data types ---
 
 type StatusData struct {
-	State     string `json:"state"`
-	Server    string `json:"server,omitempty"`
-	ServerIP  string `json:"server_ip,omitempty"`
-	Country   string `json:"country,omitempty"`
-	EntryCountry string `json:"entry_country,omitempty"`
-	Protocol  string `json:"protocol,omitempty"`
-	Duration  int64  `json:"duration_sec,omitempty"` // seconds connected
-	RxBytes   int64  `json:"rx_bytes,omitempty"`
-	TxBytes   int64  `json:"tx_bytes,omitempty"`
+	State         string `json:"state"`
+	Server        string `json:"server,omitempty"`
+	ServerIP      string `json:"server_ip,omitempty"`
+	Country       string `json:"country,omitempty"`
+	EntryCountry  string `json:"entry_country,omitempty"`
+	Protocol      string `json:"protocol,omitempty"`
+	Duration      int64  `json:"duration_sec,omitempty"` // seconds connected
+	RxBytes       int64  `json:"rx_bytes,omitempty"`
+	TxBytes       int64  `json:"tx_bytes,omitempty"`
 	Handshake     int64  `json:"handshake_epoch,omitempty"`
 	ForwardedPort uint16 `json:"forwarded_port,omitempty"`
-	Username  string `json:"username,omitempty"`
-	PlanName  string `json:"plan_name,omitempty"`
+	Username      string `json:"username,omitempty"`
+	PlanName      string `json:"plan_name,omitempty"`
 }
 
 type ServerEntry struct {

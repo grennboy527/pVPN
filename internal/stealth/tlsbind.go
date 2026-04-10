@@ -242,10 +242,10 @@ type TLSEndpoint struct {
 }
 
 func (e *TLSEndpoint) ClearSrc()           {}
-func (e *TLSEndpoint) SrcToString() string  { return "" }
-func (e *TLSEndpoint) DstToString() string  { return e.addr.String() }
-func (e *TLSEndpoint) DstIP() netip.Addr    { return e.addr.Addr() }
-func (e *TLSEndpoint) SrcIP() netip.Addr    { return netip.Addr{} }
+func (e *TLSEndpoint) SrcToString() string { return "" }
+func (e *TLSEndpoint) DstToString() string { return e.addr.String() }
+func (e *TLSEndpoint) DstIP() netip.Addr   { return e.addr.Addr() }
+func (e *TLSEndpoint) SrcIP() netip.Addr   { return netip.Addr{} }
 
 func (e *TLSEndpoint) DstToBytes() []byte {
 	b, _ := e.addr.MarshalBinary()

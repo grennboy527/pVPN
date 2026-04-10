@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/YourDoritos/pvpn/internal/api"
+	"github.com/YourDoritos/pvpn/internal/ipc"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/YourDoritos/pvpn/internal/api"
-	"github.com/YourDoritos/pvpn/internal/ipc"
 	"github.com/pquerna/otp/totp"
 )
 
@@ -94,7 +94,7 @@ func (m LoginModel) UpdateDaemon(msg tea.Msg, dc *ipc.Client) (LoginModel, tea.C
 		}
 
 	case loginDoneMsg:
-		return m, func() tea.Msg { return LoginSuccessMsg{VPNInfo: msg.VPNInfo} }
+		return m, func() tea.Msg { return LoginSuccessMsg(msg) }
 	case loginErrMsg:
 		m.err = msg.err
 		m.status = ""
@@ -195,7 +195,7 @@ func (m LoginModel) Update(msg tea.Msg, client *api.Client, store *api.SessionSt
 		}
 
 	case loginDoneMsg:
-		return m, func() tea.Msg { return LoginSuccessMsg{VPNInfo: msg.VPNInfo} }
+		return m, func() tea.Msg { return LoginSuccessMsg(msg) }
 
 	case login2FAMsg:
 		m.step = step2FA

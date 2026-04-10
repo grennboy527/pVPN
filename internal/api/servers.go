@@ -7,19 +7,19 @@ import (
 
 // ServerFilter defines criteria for filtering the server list.
 type ServerFilter struct {
-	Country     string // ISO country code (e.g., "US", "CH")
-	MinTier     int    // Minimum tier (0=free, 2=plus)
-	MaxTier     int    // Maximum tier (0 = no limit)
-	Features    int    // Required feature bitmask (OR'd)
-	ExcludeFeatures int // Excluded feature bitmask
-	OnlineOnly  bool   // Only include online servers
-	FreeOnly    bool   // Only free servers
-	SecureCore  bool   // Only Secure Core servers
-	P2P         bool   // Only P2P servers
-	Tor         bool   // Only Tor servers
-	Streaming   bool   // Only streaming servers
-	SearchQuery string // Fuzzy match on name/city/country
-	ExcludeName string // Exclude server by name (for "change server")
+	Country         string // ISO country code (e.g., "US", "CH")
+	MinTier         int    // Minimum tier (0=free, 2=plus)
+	MaxTier         int    // Maximum tier (0 = no limit)
+	Features        int    // Required feature bitmask (OR'd)
+	ExcludeFeatures int    // Excluded feature bitmask
+	OnlineOnly      bool   // Only include online servers
+	FreeOnly        bool   // Only free servers
+	SecureCore      bool   // Only Secure Core servers
+	P2P             bool   // Only P2P servers
+	Tor             bool   // Only Tor servers
+	Streaming       bool   // Only streaming servers
+	SearchQuery     string // Fuzzy match on name/city/country
+	ExcludeName     string // Exclude server by name (for "change server")
 }
 
 // FilterServers filters and sorts the server list based on the given criteria.

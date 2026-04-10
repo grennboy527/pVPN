@@ -24,7 +24,7 @@ type ConnectionConfig struct {
 }
 
 type FeaturesConfig struct {
-	NetShield      int  `toml:"netshield"`       // 0=off, 1=malware, 2=malware+ads+trackers
+	NetShield      int  `toml:"netshield"` // 0=off, 1=malware, 2=malware+ads+trackers
 	VPNAccelerator bool `toml:"vpn_accelerator"`
 	ModerateNAT    bool `toml:"moderate_nat"`
 	PortForwarding bool `toml:"port_forwarding"`
@@ -39,7 +39,7 @@ type ServerConfig struct {
 	History          []string `toml:"history"` // Last 10 connected server names
 	// Persisted filter state
 	FilterTor        bool `toml:"filter_tor"`
-	FilterStreaming   bool `toml:"filter_streaming"`
+	FilterStreaming  bool `toml:"filter_streaming"`
 	FilterSecureCore bool `toml:"filter_secure_core"`
 	FilterP2P        bool `toml:"filter_p2p"`
 }

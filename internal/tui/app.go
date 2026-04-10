@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/YourDoritos/pvpn/internal/api"
 	"github.com/YourDoritos/pvpn/internal/config"
 	"github.com/YourDoritos/pvpn/internal/ipc"
 	"github.com/YourDoritos/pvpn/internal/network"
 	"github.com/YourDoritos/pvpn/internal/vpn"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type View int
@@ -488,17 +488,6 @@ func (a App) renderNav(extra string) string {
 	return lipgloss.NewStyle().
 		Width(a.width).
 		Render(nav)
-}
-
-func joinWith(items []string, sep string) []string {
-	if len(items) == 0 {
-		return nil
-	}
-	result := []string{items[0]}
-	for _, item := range items[1:] {
-		result = append(result, sep, item)
-	}
-	return result
 }
 
 // --- Standalone mode functions ---

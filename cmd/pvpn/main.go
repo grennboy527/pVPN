@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"os"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/YourDoritos/pvpn/internal/api"
 	"github.com/YourDoritos/pvpn/internal/config"
 	"github.com/YourDoritos/pvpn/internal/tui"
 	"github.com/YourDoritos/pvpn/internal/vpn"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {

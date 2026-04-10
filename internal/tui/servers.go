@@ -5,11 +5,11 @@ import (
 	"math"
 	"strings"
 
+	"github.com/YourDoritos/pvpn/internal/api"
+	"github.com/YourDoritos/pvpn/internal/config"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/YourDoritos/pvpn/internal/api"
-	"github.com/YourDoritos/pvpn/internal/config"
 )
 
 const sidebarWidth = 24
@@ -25,7 +25,7 @@ const (
 type serverViewMode int
 
 const (
-	modeGrid    serverViewMode = iota
+	modeGrid serverViewMode = iota
 	modeServers
 )
 
@@ -44,16 +44,16 @@ type ServersModel struct {
 	gridScrollY int
 
 	// Server list (drill-down into country, or search results)
-	filtered      []api.LogicalServer
-	listCountry   string // country we drilled into (empty if search results)
-	serverIdx     int
-	listScrollY   int
+	filtered    []api.LogicalServer
+	listCountry string // country we drilled into (empty if search results)
+	serverIdx   int
+	listScrollY int
 
 	search    textinput.Model
 	searching bool
 
 	filterTor        bool
-	filterStreaming   bool
+	filterStreaming  bool
 	filterSecureCore bool
 	filterP2P        bool
 
@@ -99,8 +99,8 @@ func (m *ServersModel) SetServers(servers []api.LogicalServer) {
 
 func (m *ServersModel) SetError(err error) { m.err = err; m.loading = false }
 
-func (m *ServersModel) SetVPNState(state string)        { m.vpnState = state }
-func (m *ServersModel) SetConnectedServer(name string)   { m.connectedServer = name }
+func (m *ServersModel) SetVPNState(state string)       { m.vpnState = state }
+func (m *ServersModel) SetConnectedServer(name string) { m.connectedServer = name }
 
 func (m *ServersModel) LoadFilters(cfg *config.Config) {
 	if cfg == nil {
@@ -563,7 +563,7 @@ func (m ServersModel) viewSidebar() string {
 
 	// --- Search box ---
 	searchStyle := lipgloss.NewStyle().
-		Width(w - 4).
+		Width(w-4).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorBorder).
 		Padding(0, 1)
@@ -626,7 +626,7 @@ func (m ServersModel) viewSidebar() string {
 
 	return lipgloss.NewStyle().
 		Width(sidebarWidth).
-		Height(m.height - 1).
+		Height(m.height-1).
 		Padding(1, 1).
 		BorderRight(true).
 		BorderStyle(lipgloss.NormalBorder()).

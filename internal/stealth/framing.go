@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"net"
 	"sync"
 )
 
@@ -28,7 +27,7 @@ const (
 
 	wgDataPrefix      = 4 // WG transport data message type
 	wgDataHeaderSize  = 16
-	wgDataPrefixSize  = 8 // WG data header without counter
+	wgDataPrefixSize  = 8      // WG data header without counter
 	maxTunSafePayload = 0x3FFF // 14-bit max
 )
 
@@ -45,11 +44,6 @@ func newTunSafeState() *tunSafeState {
 		sendPrefix: make([]byte, wgDataPrefixSize),
 		recvPrefix: make([]byte, wgDataPrefixSize),
 	}
-}
-
-func (ts *tunSafeState) clear() {
-	ts.sendCount = 0
-	ts.recvCount = 0
 }
 
 // wgToTunSafe converts a WireGuard packet to TunSafe framing.
@@ -135,7 +129,7 @@ func (ts *tunSafeState) prepareWgPacket(tunSafeType byte, payloadSize int) ([]by
 // parseTunSafeHeader parses the 2-byte TunSafe header.
 func parseTunSafeHeader(header []byte) (byte, int) {
 	tunSafeType := header[0] >> 6
-	size := (int(header[0]) & 0x3F) << 8 | int(header[1])
+	size := (int(header[0])&0x3F)<<8 | int(header[1])
 	return tunSafeType, size
 }
 
@@ -166,7 +160,6 @@ type FrameReader struct {
 	mu      sync.Mutex
 	r       io.Reader
 	tunsafe *tunSafeState
-	current *bytes.Reader // current packet being read
 }
 
 // NewFrameReader creates a framing reader.
@@ -209,13 +202,4 @@ func (fr *FrameReader) ReadPacket(buf []byte) (int, error) {
 	}
 	copy(buf[:n], wgPacket)
 	return n, nil
-}
-
-// setTCPOptions sets TCP socket options optimized for VPN tunneling.
-func setTCPOptions(conn net.Conn) {
-	if tc, ok := conn.(*net.TCPConn); ok {
-		tc.SetNoDelay(true)
-		tc.SetKeepAlive(true)
-		tc.SetLinger(0)
-	}
 }

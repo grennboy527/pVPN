@@ -7,17 +7,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"sync"
 	"time"
 )
 
 const (
-	DefaultBaseURL  = "https://vpn-api.proton.me"
-	AppVersion      = "linux-vpn@4.13.1"
-	UserAgent       = "ProtonVPN/4.13.1 (Linux; go-pvpn)"
-	DefaultTimeout  = 30 * time.Second
-	MaxRetries      = 3
+	DefaultBaseURL = "https://vpn-api.proton.me"
+	AppVersion     = "linux-vpn@4.13.1"
+	UserAgent      = "ProtonVPN/4.13.1 (Linux; go-pvpn)"
+	DefaultTimeout = 30 * time.Second
+	MaxRetries     = 3
 )
 
 // Client is the Proton VPN API client. It handles authenticated requests,
@@ -357,14 +356,4 @@ func (c *Client) GetServerLoads(ctx context.Context) (*LogicalsResponse, error) 
 		return nil, err
 	}
 	return &result, nil
-}
-
-// handleRetryAfter extracts the Retry-After header value.
-func handleRetryAfter(resp *http.Response) time.Duration {
-	if val := resp.Header.Get("Retry-After"); val != "" {
-		if seconds, err := strconv.Atoi(val); err == nil {
-			return time.Duration(seconds) * time.Second
-		}
-	}
-	return 5 * time.Second
 }

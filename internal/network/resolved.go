@@ -60,11 +60,8 @@ func (b *ResolvedBackend) SetDNS(ifIndex int, servers []net.IP) error {
 		return fmt.Errorf("SetLinkDomains: %w", call.Err)
 	}
 
-	// SetLinkDefaultRoute
-	call = obj.Call("org.freedesktop.resolve1.Manager.SetLinkDefaultRoute", 0, int32(ifIndex), true)
-	if call.Err != nil {
-		// Not critical
-	}
+	// SetLinkDefaultRoute — not critical if it fails, log and continue
+	_ = obj.Call("org.freedesktop.resolve1.Manager.SetLinkDefaultRoute", 0, int32(ifIndex), true)
 
 	return nil
 }

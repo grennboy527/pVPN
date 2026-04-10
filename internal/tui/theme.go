@@ -4,19 +4,19 @@ import "github.com/charmbracelet/lipgloss"
 
 // Proton brand colors
 var (
-	ColorPrimary    = lipgloss.Color("#6D4AFF") // Proton purple
-	ColorSecondary  = lipgloss.Color("#8B6FFF")
-	ColorAccent     = lipgloss.Color("#00F0C8") // Proton green/teal
-	ColorSuccess    = lipgloss.Color("#2ECC71")
-	ColorWarning    = lipgloss.Color("#F39C12")
-	ColorError      = lipgloss.Color("#E74C3C")
-	ColorMuted      = lipgloss.Color("#6C757D")
-	ColorBg         = lipgloss.Color("#1A1A2E")
-	ColorBgLight    = lipgloss.Color("#232340")
-	ColorFg         = lipgloss.Color("#E8E8E8")
-	ColorFgDim      = lipgloss.Color("#888899")
-	ColorHighlight  = lipgloss.Color("#6D4AFF")
-	ColorBorder     = lipgloss.Color("#3D3D5C")
+	ColorPrimary   = lipgloss.Color("#6D4AFF") // Proton purple
+	ColorSecondary = lipgloss.Color("#8B6FFF")
+	ColorAccent    = lipgloss.Color("#00F0C8") // Proton green/teal
+	ColorSuccess   = lipgloss.Color("#2ECC71")
+	ColorWarning   = lipgloss.Color("#F39C12")
+	ColorError     = lipgloss.Color("#E74C3C")
+	ColorMuted     = lipgloss.Color("#6C757D")
+	ColorBg        = lipgloss.Color("#1A1A2E")
+	ColorBgLight   = lipgloss.Color("#232340")
+	ColorFg        = lipgloss.Color("#E8E8E8")
+	ColorFgDim     = lipgloss.Color("#888899")
+	ColorHighlight = lipgloss.Color("#6D4AFF")
+	ColorBorder    = lipgloss.Color("#3D3D5C")
 )
 
 // Shared styles

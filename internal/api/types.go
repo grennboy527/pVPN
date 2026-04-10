@@ -132,14 +132,14 @@ type LogicalServer struct {
 }
 
 type PhysicalServer struct {
-	ID                string `json:"ID"`
-	EntryIP           string `json:"EntryIP"`
-	ExitIP            string `json:"ExitIP"`
-	Domain            string `json:"Domain"`
-	Status            int    `json:"Status"`
-	Generation        int    `json:"Generation"`
-	Label             string `json:"Label"`
-	X25519PublicKey   string `json:"X25519PublicKey"`
+	ID                 string `json:"ID"`
+	EntryIP            string `json:"EntryIP"`
+	ExitIP             string `json:"ExitIP"`
+	Domain             string `json:"Domain"`
+	Status             int    `json:"Status"`
+	Generation         int    `json:"Generation"`
+	Label              string `json:"Label"`
+	X25519PublicKey    string `json:"X25519PublicKey"`
 	ServicesDownReason string `json:"ServicesDownReason,omitempty"`
 }
 
@@ -153,7 +153,7 @@ const (
 	ServerFeatureSecureCore = 1
 	ServerFeatureTor        = 2
 	ServerFeatureP2P        = 4
-	ServerFeatureStreaming   = 8
+	ServerFeatureStreaming  = 8
 	ServerFeatureIPv6       = 16
 )
 
@@ -250,10 +250,10 @@ func (c *CertificateResponse) RefreshAt() time.Time {
 // Client config types
 
 type ClientConfigResponse struct {
-	Code          int          `json:"Code"`
-	DefaultPorts  DefaultPorts `json:"DefaultPorts"`
-	HolesIPs      []string     `json:"HolesIPs"`
-	FeatureFlags  FeatureFlags `json:"FeatureFlags"`
+	Code          int           `json:"Code"`
+	DefaultPorts  DefaultPorts  `json:"DefaultPorts"`
+	HolesIPs      []string      `json:"HolesIPs"`
+	FeatureFlags  FeatureFlags  `json:"FeatureFlags"`
 	SmartProtocol SmartProtocol `json:"SmartProtocol"`
 }
 

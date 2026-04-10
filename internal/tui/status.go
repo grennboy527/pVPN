@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/YourDoritos/pvpn/internal/ipc"
 	"github.com/YourDoritos/pvpn/internal/vpn"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type tickMsg time.Time
@@ -15,17 +15,17 @@ type tickMsg time.Time
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 type StatusModel struct {
-	width, height  int
-	state          string
-	serverName     string
-	country        string
-	entryCountry   string
-	connectedAt    time.Time
-	forwardedPort  uint16
-	info           vpn.ConnectionInfo
-	stats          *vpn.PeerStats
-	err            error
-	spinnerIdx     int
+	width, height int
+	state         string
+	serverName    string
+	country       string
+	entryCountry  string
+	connectedAt   time.Time
+	forwardedPort uint16
+	info          vpn.ConnectionInfo
+	stats         *vpn.PeerStats
+	err           error
+	spinnerIdx    int
 }
 
 func NewStatusModel() StatusModel {
@@ -52,9 +52,14 @@ func (m *StatusModel) SetConnected(info vpn.ConnectionInfo) {
 	m.err = nil
 }
 
-func (m *StatusModel) SetReconnecting()    { m.state = "reconnecting" }
-func (m *StatusModel) SetError(err error)  { m.state = "error"; m.err = err }
-func (m *StatusModel) SetDisconnected()    { m.state = "disconnected"; m.stats = nil; m.forwardedPort = 0; m.entryCountry = "" }
+func (m *StatusModel) SetReconnecting()   { m.state = "reconnecting" }
+func (m *StatusModel) SetError(err error) { m.state = "error"; m.err = err }
+func (m *StatusModel) SetDisconnected() {
+	m.state = "disconnected"
+	m.stats = nil
+	m.forwardedPort = 0
+	m.entryCountry = ""
+}
 
 // Daemon mode setters
 func (m *StatusModel) SetConnectedDaemon(server, country string) {
@@ -83,8 +88,8 @@ func (m *StatusModel) SetConnectedFromDaemon(data *ipc.StatusData) {
 	}
 	if data.RxBytes > 0 || data.TxBytes > 0 {
 		m.stats = &vpn.PeerStats{
-			RxBytes: data.RxBytes,
-			TxBytes: data.TxBytes,
+			RxBytes:       data.RxBytes,
+			TxBytes:       data.TxBytes,
 			LastHandshake: time.Unix(data.Handshake, 0),
 		}
 	}

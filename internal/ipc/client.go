@@ -9,11 +9,11 @@ import (
 
 // Client connects to the pvpnd daemon via Unix socket.
 type Client struct {
-	mu       sync.Mutex
-	conn     *Conn
-	respCh   chan *Response
-	closed   bool
-	closeMu  sync.Mutex
+	mu      sync.Mutex
+	conn    *Conn
+	respCh  chan *Response
+	closed  bool
+	closeMu sync.Mutex
 
 	// EventHandler is called for push events from the daemon.
 	// Called from a background goroutine — must be safe for concurrent use.

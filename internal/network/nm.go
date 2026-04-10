@@ -2,6 +2,7 @@ package network
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"os"
 
@@ -12,8 +13,8 @@ import (
 // When systemd-resolved is also running, DNS is set via resolved (preferred).
 // Otherwise uses NM's conf.d global DNS override.
 type NMBackend struct {
-	conn     *dbus.Conn
-	resolved bool
+	conn      *dbus.Conn
+	resolved  bool
 	usedConfD bool // whether we wrote a conf.d snippet
 }
 
@@ -106,8 +107,7 @@ func (b *NMBackend) setDNSViaConfD(servers []net.IP) error {
 		// DNS won't be set to Proton's servers, but the VPN tunnel
 		// still works — traffic is routed through the VPN. DNS queries
 		// to 10.2.0.1 work through the tunnel regardless.
-		fmt.Printf("Warning: DNS managed by %s — VPN DNS override skipped.\n", owner)
-		fmt.Println("  VPN tunnel is active. For Proton DNS (NetShield etc.), consider enabling systemd-resolved.")
+		log.Printf("warning: DNS managed by %s — VPN DNS override skipped. VPN tunnel is active; for Proton DNS (NetShield etc.) consider enabling systemd-resolved.", owner)
 		return nil
 	}
 
