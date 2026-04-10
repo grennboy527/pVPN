@@ -34,9 +34,15 @@ jobs:
           git diff --exit-code go.mod go.sum
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        # v8 of the action defaults to installing golangci-lint v2.x, which
+        # is what our .golangci.yml targets (and what's built against a
+        # recent-enough Go to handle our go.mod toolchain pin). v6 of the
+        # action pulled the latest v1.x, which is built with Go 1.24 and
+        # refuses to run against our go 1.26 module. Pin an explicit linter
+        # version too so "latest" can't silently break CI the same way.
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          version: v2.11.4
 
       - name: govulncheck
         run: |
