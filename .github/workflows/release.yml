@@ -28,6 +28,9 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o pvpn   ./cmd/pvpn
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o pvpnctl ./cmd/pvpnctl
 
+      - name: Generate checksums
+        run: sha256sum pvpn pvpnd pvpnctl > SHA256SUMS
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
@@ -36,11 +39,14 @@ jobs:
             pvpn
             pvpnd
             pvpnctl
+            SHA256SUMS
 
   aur-publish:
     runs-on: ubuntu-latest
     needs: release
     steps:
+      - uses: actions/checkout@v4
+
       - name: Set up SSH for AUR
         run: |
           mkdir -p ~/.ssh
@@ -56,24 +62,44 @@ jobs:
       - name: Clone AUR repo
         run: git clone ssh://aur@aur.archlinux.org/pvpn-go.git aur
 
-      - name: Update version and push
+      - name: Sync PKGBUILD + install hook from repo and push
         run: |
-          cd aur
           VERSION=${GITHUB_REF_NAME#v}
-          OLD_VERSION=$(grep -oP '(?<=pkgver=).*' PKGBUILD)
 
-          # Update PKGBUILD
+          # Repo is the source of truth — copy both files into the AUR clone.
+          cp dist/PKGBUILD          aur/PKGBUILD
+          cp dist/pvpn-go.install   aur/pvpn-go.install
+
+          cd aur
+
+          # Pin to the tag being released, reset pkgrel.
           sed -i "s/^pkgver=.*/pkgver=${VERSION}/" PKGBUILD
           sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
 
-          # Update .SRCINFO (same fields, different format)
-          sed -i "s/pkgver = .*/pkgver = ${VERSION}/" .SRCINFO
-          sed -i "s/pkgrel = .*/pkgrel = 1/" .SRCINFO
-          sed -i "s/${OLD_VERSION}/${VERSION}/g" .SRCINFO
+          # Regenerate .SRCINFO from scratch. We avoid `makepkg --printsrcinfo`
+          # (which would require installing base-devel in CI) by hand-writing
+          # the file — the schema is stable and matches what makepkg emits.
+          cat > .SRCINFO <<SRCINFO
+          pkgbase = pvpn-go
+          	pkgdesc = Proton VPN client with TUI for Linux (WireGuard + Stealth)
+          	pkgver = ${VERSION}
+          	pkgrel = 1
+          	url = https://github.com/YourDoritos/pVPN
+          	install = pvpn-go.install
+          	arch = x86_64
+          	license = GPL-3.0-or-later
+          	makedepends = go>=1.22
+          	makedepends = git
+          	depends = glibc
+          	source = pvpn-go-${VERSION}.tar.gz::https://github.com/YourDoritos/pVPN/archive/v${VERSION}.tar.gz
+          	sha256sums = SKIP
+
+          pkgname = pvpn-go
+          SRCINFO
 
           git config user.email "paul.goessmann@proton.me"
           git config user.name "YourDoritos"
-          git add PKGBUILD .SRCINFO
-          git diff --cached --quiet && echo "No version change" && exit 0
+          git add PKGBUILD pvpn-go.install .SRCINFO
+          git diff --cached --quiet && echo "No changes to publish" && exit 0
           git commit -m "Update to v${VERSION}"
           git push
