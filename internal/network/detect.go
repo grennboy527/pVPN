@@ -1,8 +1,6 @@
 package network
 
 import (
-	"fmt"
-
 	"github.com/godbus/dbus/v5"
 )
 
@@ -49,13 +47,4 @@ func isServiceActive(conn *dbus.Conn, service string) bool {
 		}
 	}
 	return false
-}
-
-// MustDetectBackend is like DetectBackend but panics on error.
-func MustDetectBackend() DNSBackend {
-	backend, err := DetectBackend()
-	if err != nil {
-		panic(fmt.Sprintf("detect network backend: %v", err))
-	}
-	return backend
 }
