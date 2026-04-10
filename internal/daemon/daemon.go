@@ -7,7 +7,9 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -17,6 +19,11 @@ import (
 	"github.com/YourDoritos/pvpn/internal/network"
 	"github.com/YourDoritos/pvpn/internal/vpn"
 )
+
+// socketGroup is the Unix group whose members may talk to the daemon
+// via the IPC socket. If the group does not exist on the host, the
+// daemon falls back to root-only socket permissions (0600).
+const socketGroup = "pvpn"
 
 // Daemon is the privileged VPN service.
 type Daemon struct {
@@ -36,10 +43,10 @@ type Daemon struct {
 
 	sessionReady chan struct{} // closed when initSession completes
 
-	listener     net.Listener
-	sleepMon     *sleepMonitor
-	ctx          context.Context
-	cancel       context.CancelFunc
+	listener net.Listener
+	sleepMon *sleepMonitor
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 // New creates a new daemon instance.
@@ -52,7 +59,7 @@ func New(cfg *config.Config, client *api.Client, store *api.SessionStore) *Daemo
 		clients:      make(map[*ipc.Conn]struct{}),
 		sessionReady: make(chan struct{}),
 		ctx:          ctx,
-		cancel:  cancel,
+		cancel:       cancel,
 	}
 }
 
@@ -71,8 +78,25 @@ func (d *Daemon) Run(socketPath string) error {
 	}
 	d.listener = ln
 
-	// Make socket accessible to non-root users
-	os.Chmod(socketPath, 0666)
+	// Restrict socket to root + members of the pvpn group. If the group
+	// doesn't exist (fresh install without the group, dev/test loops),
+	// fall back to root-only (0600) — daemon still works, but only root
+	// can talk to it until the group is created.
+	if grp, err := user.LookupGroup(socketGroup); err == nil {
+		gid, convErr := strconv.Atoi(grp.Gid)
+		if convErr != nil {
+			log.Printf("warning: parse pvpn gid %q: %v — falling back to root-only socket", grp.Gid, convErr)
+			os.Chmod(socketPath, 0600)
+		} else if err := os.Chown(socketPath, 0, gid); err != nil {
+			log.Printf("warning: chown socket to root:%s: %v — falling back to root-only", socketGroup, err)
+			os.Chmod(socketPath, 0600)
+		} else {
+			os.Chmod(socketPath, 0660)
+		}
+	} else {
+		log.Printf("warning: group %q not found — IPC socket restricted to root. Create the group and add your user to enable unprivileged clients.", socketGroup)
+		os.Chmod(socketPath, 0600)
+	}
 
 	log.Printf("Daemon listening on %s", socketPath)
 
@@ -351,7 +375,9 @@ func (d *Daemon) cmdConnect(params json.RawMessage) *ipc.Response {
 		protocol = d.cfg.Connection.Protocol
 	}
 
-	// Connect in background, return immediately
+	// Connect in background, return immediately. The doConnect context
+	// is derived from d.ctx so daemon shutdown cancels it, and capped
+	// at connectTimeout so a stuck attempt doesn't hang forever.
 	go func() {
 		if err := d.doConnect(server, protocol); err != nil {
 			d.broadcast(&ipc.Event{
@@ -380,7 +406,11 @@ func (d *Daemon) doConnect(server *api.LogicalServer, protocol string) error {
 	// (kill switch, netshield, etc.) since the daemon started.
 	d.cfg.Reload()
 
-	ctx := d.ctx
+	// Cap the initial connect attempt so a stuck handshake or hung
+	// TLS dial can't wedge the daemon forever. Derived from d.ctx so
+	// daemon shutdown still cancels mid-connect.
+	ctx, cancel := context.WithTimeout(d.ctx, 2*time.Minute)
+	defer cancel()
 
 	dnsBackend, err := network.DetectBackend()
 	if err != nil {
