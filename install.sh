@@ -28,10 +28,13 @@ if [ "$(uname -s)" != "Linux" ]; then
     die "pVPN only supports Linux (detected: $(uname -s))."
 fi
 
-ARCH=$(uname -m)
-case "$ARCH" in
-    x86_64|amd64) ARCH="x86_64" ;;
-    *)            die "Unsupported architecture '$ARCH'. Only x86_64 is currently published. Build from source: https://github.com/${REPO}" ;;
+# Map host arch to the Go/release naming used in asset filenames
+# (pvpn-linux-amd64, pvpn-linux-arm64).
+HOST_ARCH=$(uname -m)
+case "$HOST_ARCH" in
+    x86_64|amd64)  GOARCH="amd64" ;;
+    aarch64|arm64) GOARCH="arm64" ;;
+    *)             die "Unsupported architecture '$HOST_ARCH'. Published binaries: amd64, arm64. Build from source: https://github.com/${REPO}" ;;
 esac
 
 if ! command -v systemctl >/dev/null 2>&1; then
@@ -66,7 +69,7 @@ if [ -z "$VERSION" ]; then
     fi
 fi
 
-log "Installing pVPN ${VERSION} for ${ARCH}"
+log "Installing pVPN ${VERSION} for linux/${GOARCH}"
 
 BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
 RAW_URL="https://raw.githubusercontent.com/${REPO}/${VERSION}"
@@ -80,7 +83,17 @@ cd "$TMP"
 
 log "Downloading binaries..."
 for bin in pvpn pvpnd pvpnctl; do
-    curl -fsSL -o "$bin" "${BASE_URL}/${bin}" || die "Failed to fetch ${bin}"
+    asset="${bin}-linux-${GOARCH}"
+    if curl -fsSL -o "$bin" "${BASE_URL}/${asset}"; then
+        continue
+    fi
+    # Fall back to legacy unsuffixed names (releases before v0.2.0 only
+    # shipped amd64 with no arch suffix).
+    if [ "$GOARCH" = "amd64" ] && curl -fsSL -o "$bin" "${BASE_URL}/${bin}"; then
+        warn "Using legacy un-suffixed asset '${bin}' (pre-v0.2.0 release)"
+        continue
+    fi
+    die "Failed to fetch ${asset} from ${BASE_URL}"
 done
 
 log "Downloading checksums..."
@@ -89,6 +102,12 @@ if ! curl -fsSL -o SHA256SUMS "${BASE_URL}/SHA256SUMS"; then
     warn "Consider upgrading to a newer release that publishes checksums."
 else
     log "Verifying checksums..."
+    # SHA256SUMS lists files by their release-asset name (e.g.
+    # pvpn-linux-amd64). Rewrite to the local filenames we just saved
+    # so sha256sum -c finds them.
+    sed -i "s| pvpn-linux-${GOARCH}\$| pvpn|; \
+            s| pvpnd-linux-${GOARCH}\$| pvpnd|; \
+            s| pvpnctl-linux-${GOARCH}\$| pvpnctl|" SHA256SUMS
     sha256sum -c --ignore-missing SHA256SUMS || die "Checksum verification failed."
 fi
 

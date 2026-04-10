@@ -20,25 +20,31 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Build static binaries
+      - name: Build static binaries (amd64 + arm64)
         run: |
           VERSION=${GITHUB_REF_NAME}
           LDFLAGS="-s -w -X main.version=${VERSION}"
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o pvpnd  ./cmd/pvpnd
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o pvpn   ./cmd/pvpn
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o pvpnctl ./cmd/pvpnctl
+          for arch in amd64 arm64; do
+            for bin in pvpnd pvpn pvpnctl; do
+              CGO_ENABLED=0 GOOS=linux GOARCH=$arch \
+                go build -ldflags "${LDFLAGS}" -o ${bin}-linux-${arch} ./cmd/${bin}
+            done
+          done
 
       - name: Generate checksums
-        run: sha256sum pvpn pvpnd pvpnctl > SHA256SUMS
+        run: sha256sum pvpn-linux-* pvpnd-linux-* pvpnctl-linux-* > SHA256SUMS
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
-            pvpn
-            pvpnd
-            pvpnctl
+            pvpn-linux-amd64
+            pvpnd-linux-amd64
+            pvpnctl-linux-amd64
+            pvpn-linux-arm64
+            pvpnd-linux-arm64
+            pvpnctl-linux-arm64
             SHA256SUMS
 
   aur-publish:
@@ -87,6 +93,7 @@ jobs:
           	url = https://github.com/YourDoritos/pVPN
           	install = pvpn-go.install
           	arch = x86_64
+          	arch = aarch64
           	license = GPL-3.0-or-later
           	makedepends = go>=1.22
           	makedepends = git
