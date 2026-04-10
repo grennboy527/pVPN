@@ -1,14 +1,14 @@
 # Maintainer: Paul Goessmann <paul.goessmann@proton.me>
-pkgname=pvpn
-pkgver=0.1.0
+pkgname=pvpn-go
+pkgver=0.2.0
 pkgrel=1
 pkgdesc='Proton VPN client with TUI for Linux (WireGuard + Stealth)'
 arch=('x86_64')
-url='https://github.com/YourDoritos/pvpn'
+url='https://github.com/YourDoritos/pVPN'
 license=('GPL-3.0-or-later')
 depends=('glibc')
 makedepends=('go>=1.22' 'git')
-install=pvpn.install
+install=pvpn-go.install
 backup=()
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/v${pkgver}.tar.gz")
 sha256sums=('SKIP')
@@ -18,6 +18,7 @@ _srcdir="pVPN-${pkgver}"
 prepare() {
   cd "${_srcdir}"
   export GOPATH="${srcdir}/gopath"
+  export GOFLAGS="-modcacherw"
   go mod download
 }
 
@@ -43,7 +44,6 @@ package() {
   install -Dm755 pvpn    "${pkgdir}/usr/bin/pvpn"
   install -Dm755 pvpnctl "${pkgdir}/usr/bin/pvpnctl"
 
-  # Service file: fix ExecStart path for /usr/bin
   sed 's|ExecStart=/usr/local/bin/pvpnd|ExecStart=/usr/bin/pvpnd|' \
     dist/pvpnd.service | install -Dm644 /dev/stdin \
     "${pkgdir}/usr/lib/systemd/system/pvpnd.service"
