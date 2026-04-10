@@ -27,10 +27,41 @@ Unlike the official Proton VPN Linux app, pVPN:
 
 ## Requirements
 
-- Linux with systemd
-- Kernel 5.6+ (for WireGuard)
-- `x86_64` (other architectures: build from source)
-- A Proton VPN account (Plus or higher for most servers)
+**Required:**
+
+- Linux kernel 5.6+ (WireGuard is built-in; older kernels need the
+  `wireguard` module loaded — pVPN talks to it via netlink/`wgctrl`,
+  no `wg-quick` binary needed)
+- `systemd` (for the bundled daemon unit)
+- `x86_64` or `aarch64` (prebuilt binaries; other architectures can
+  [build from source](#build-from-source))
+- A Proton VPN account (Plus or higher unlocks the full server list)
+
+**Required only for specific features:**
+
+- `nftables` (`nft` binary) — only if the kill switch is enabled
+- A paid Proton plan with NAT-PMP — only for port forwarding
+
+**DNS backend — any ONE of these is auto-detected at runtime:**
+
+- NetworkManager (if running)
+- `systemd-resolved` (if running)
+- Direct `/etc/resolv.conf` management (fallback)
+
+**NOT required** (unlike Proton's official Linux client):
+
+- **NetworkManager** — pVPN works on NM-free setups: `systemd-networkd`,
+  `netctl`, `dhcpcd`-only, `iwd`-only, bare-metal servers, LXC containers,
+  etc. The official Proton app hard-requires NetworkManager; pVPN
+  auto-detects whichever stack is present and picks the right backend.
+- **Python, Electron, or any GUI stack** — pure Go binaries, ~15 MB total
+- **`wg-quick` / `wireguard-tools` userspace** — the kernel interface
+  is managed via netlink directly
+
+The daemon runs as `root` with `CAP_NET_ADMIN` to create the WireGuard
+interface, set routes, and manage nftables rules. The TUI and CLI run
+as your user and talk to the daemon over a Unix socket guarded by the
+`pvpn` group.
 
 ## Install
 
