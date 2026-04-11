@@ -10,10 +10,25 @@ import (
 	"github.com/YourDoritos/pvpn/internal/ipc"
 )
 
+// version is injected at build time via -ldflags "-X main.version=...".
+// Defaults to "dev" for local builds without the flag.
+var version = "dev"
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(1)
+	}
+
+	// Handle version/help before dialing the daemon so they work even
+	// when pvpnd isn't running.
+	switch os.Args[1] {
+	case "-v", "--version", "version":
+		fmt.Printf("pvpnctl %s\n", version)
+		return
+	case "-h", "--help", "help":
+		usage()
+		return
 	}
 
 	client, err := ipc.Dial()
@@ -51,10 +66,14 @@ func usage() {
 	fmt.Println("  disconnect              Disconnect from VPN")
 	fmt.Println("  servers                 List available servers")
 	fmt.Println("  login <user> <pass>     Login to Proton account")
+	fmt.Println("  version                 Print pvpnctl version and exit")
+	fmt.Println("  help                    Show this help message")
 	fmt.Println()
 	fmt.Println("Options:")
 	fmt.Println("  --protocol <p>          Protocol: smart, wireguard, stealth")
 	fmt.Println("  --format waybar         Output status in waybar JSON format")
+	fmt.Println("  -v, --version           Print version and exit")
+	fmt.Println("  -h, --help              Show this help message")
 }
 
 func cmdStatus(client *ipc.Client) {

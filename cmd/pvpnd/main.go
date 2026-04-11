@@ -13,11 +13,45 @@ import (
 	"github.com/YourDoritos/pvpn/internal/ipc"
 )
 
+// version is injected at build time via -ldflags "-X main.version=...".
+// Defaults to "dev" for local builds without the flag.
+var version = "dev"
+
 func main() {
+	// Handle version/help before the root check so unprivileged users
+	// can ask which pvpnd they have installed.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "-v", "--version", "version":
+			fmt.Printf("pvpnd %s\n", version)
+			return
+		case "-h", "--help", "help":
+			printHelp()
+			return
+		}
+	}
+
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "pvpnd: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func printHelp() {
+	fmt.Println("Usage: pvpnd [options]")
+	fmt.Println()
+	fmt.Println("The pVPN daemon. Owns the WireGuard interface, routes, DNS, and")
+	fmt.Println("kill switch. Must run as root (or with CAP_NET_ADMIN). Normally")
+	fmt.Println("started via systemd; see dist/pvpnd.service.")
+	fmt.Println()
+	fmt.Println("Environment:")
+	fmt.Println("  PVPN_SOCKET     Override the IPC socket path")
+	fmt.Println("                  (default: /run/pvpn/pvpn.sock)")
+	fmt.Println("  SUDO_USER       Username whose ~/.config/pvpn to load config from")
+	fmt.Println()
+	fmt.Println("Options:")
+	fmt.Println("  -v, --version   Print version and exit")
+	fmt.Println("  -h, --help      Show this help message")
 }
 
 func run() error {
