@@ -127,6 +127,12 @@ func VerifyKillSwitch() error {
 	if !strings.Contains(string(output), "chain output") {
 		return fmt.Errorf("kill switch table %q has no output chain: %s", tableName, string(output))
 	}
+	// F-16b regression guard: the forward chain must be present too.
+	// Pre-F-16 ruleset had only output — container / VM / bridged
+	// traffic was forwarded past the kill switch uninspected.
+	if !strings.Contains(string(output), "chain forward") {
+		return fmt.Errorf("kill switch table %q has no forward chain (F-16 regression — container traffic would bypass kill switch): %s", tableName, string(output))
+	}
 	if !strings.Contains(string(output), "policy drop") {
 		return fmt.Errorf("kill switch table %q output chain is not drop-policy: %s", tableName, string(output))
 	}
@@ -244,6 +250,44 @@ func buildRules(serverIP net.IP) string {
         # Drop everything else
         drop
     }
+
+    # F-16b fix: forwarded-traffic chain. The output chain above only
+    # fires for packets ORIGINATED by the host netns; traffic coming
+    # out of a container (Docker, Podman, libvirt/KVM bridge, LXC) is
+    # FORWARDED through the host and never touches output. Without
+    # this chain, any such forwarded packet bypasses the kill switch
+    # entirely and goes wherever routing sends it — and when pvpn0 is
+    # momentarily down during a reconnect window, that was observed
+    # to be the real NIC, leaking container traffic via the ISP.
+    #
+    # The rules mirror the output-chain allowlist (minus loopback,
+    # which is never forwarded, and minus DHCP, which is never
+    # forwarded either), so the forward policy is symmetric with
+    # output: egress via pvpn0, or via a legit LAN subnet, or drop.
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+
+        # Forwarded out the VPN tunnel — the normal path for
+        # container/VM internet traffic once everything is healthy.
+        oifname "%s" accept
+
+        # Forwarded to the VPN server itself or the reconnect API —
+        # rare for forwarded packets but keeps the chain symmetric
+        # with the output chain so corner-case router-style setups
+        # don't silently break.
+        ip daddr %s accept
+        ip daddr @%s accept
+
+        # Forwarded to legit LAN ranges. This also covers the
+        # common case of container-to-container traffic on a Docker
+        # bridge (docker0 is inside 172.16.0.0/12) and libvirt /
+        # KVM bridged VMs on 192.168.x.y.
+        ip daddr 10.0.0.0/8 accept
+        ip daddr 172.16.0.0/12 accept
+        ip daddr 192.168.0.0/16 accept
+
+        drop
+    }
 }
-`, tableName, reconnectSet, InterfaceName, serverIP.String(), reconnectSet)
+`, tableName, reconnectSet, InterfaceName, serverIP.String(), reconnectSet, InterfaceName, serverIP.String(), reconnectSet)
 }

@@ -21,6 +21,12 @@ const (
 	FWMark = 51820
 	// Custom routing table for VPN traffic
 	RouteTable = 51820
+	// Metric for the unreachable-default backstop route in the VPN
+	// table. High enough that the real `default dev pvpn0` (metric 0)
+	// always wins while pvpn0 is up; takes over automatically when
+	// the kernel purges the pvpn0 default on link-down. See F-16 in
+	// .planning/vm-tests/FINDINGS.md and routes.go Up() for context.
+	unreachableBackstopMetric = 9999
 )
 
 // WireGuardConfig holds everything needed to bring up a WireGuard tunnel.

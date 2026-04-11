@@ -157,6 +157,78 @@ func TestBuildRules_IPv6NoLeak(t *testing.T) {
 	}
 }
 
+func TestBuildRules_HasForwardChain(t *testing.T) {
+	// F-16b regression guard. The output chain alone only inspects
+	// host-originated traffic. Forwarded traffic (containers, VMs,
+	// bridges) MUST also be filtered or the whole kill switch is
+	// bypassable by running wget inside a Docker container during
+	// a reconnect window.
+	rules := buildRules(net.ParseIP("1.2.3.4"))
+	if !strings.Contains(rules, "chain forward {") {
+		t.Errorf("ruleset missing forward chain (F-16b regression):\n%s", rules)
+	}
+	if !strings.Contains(rules, "type filter hook forward priority filter; policy drop;") {
+		t.Errorf("forward chain missing or wrong hook/policy (F-16b regression):\n%s", rules)
+	}
+}
+
+func TestBuildRules_ForwardChainAllowsTunnelAndLAN(t *testing.T) {
+	// The forward chain must let container → tunnel and container →
+	// legit LAN work, otherwise turning the kill switch on breaks
+	// every Docker user's network.
+	rules := buildRules(net.ParseIP("1.2.3.4"))
+
+	// Split out only the forward chain body for precise assertions.
+	fwdStart := strings.Index(rules, "chain forward {")
+	if fwdStart < 0 {
+		t.Fatalf("forward chain not present:\n%s", rules)
+	}
+	fwdEnd := strings.Index(rules[fwdStart:], "\n    }")
+	if fwdEnd < 0 {
+		t.Fatalf("forward chain not terminated:\n%s", rules[fwdStart:])
+	}
+	fwdBody := rules[fwdStart : fwdStart+fwdEnd]
+
+	required := []string{
+		`oifname "` + InterfaceName + `" accept`, // container → tunnel
+		`ip daddr 10.0.0.0/8 accept`,
+		`ip daddr 172.16.0.0/12 accept`, // docker0 is inside this
+		`ip daddr 192.168.0.0/16 accept`,
+		`drop`,
+	}
+	for _, r := range required {
+		if !strings.Contains(fwdBody, r) {
+			t.Errorf("forward chain missing %q:\n%s", r, fwdBody)
+		}
+	}
+}
+
+func TestBuildRules_ForwardChainNoBroadAccept(t *testing.T) {
+	// Defensive: the forward chain must not accidentally contain an
+	// unconditional accept like `ct state established,related accept`
+	// or `accept` on a bare line. Either would make the kill switch
+	// a no-op for forwarded traffic.
+	rules := buildRules(net.ParseIP("1.2.3.4"))
+	fwdStart := strings.Index(rules, "chain forward {")
+	if fwdStart < 0 {
+		return // covered by TestBuildRules_HasForwardChain
+	}
+	fwdBody := rules[fwdStart:]
+	end := strings.Index(fwdBody, "\n    }")
+	if end > 0 {
+		fwdBody = fwdBody[:end]
+	}
+	for _, line := range strings.Split(fwdBody, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") || trimmed == "" {
+			continue
+		}
+		if strings.Contains(trimmed, "ct state established") {
+			t.Errorf("forward chain contains ct state established accept (F-16b regression): %q", trimmed)
+		}
+	}
+}
+
 func TestBuildRules_StableAcrossServerIPs(t *testing.T) {
 	// Structural rules (policy, LAN, DNS, DHCP, established) should be
 	// identical regardless of which server IP is plugged in. Only the

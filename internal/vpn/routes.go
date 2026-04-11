@@ -126,6 +126,41 @@ func (rm *RouteManager) Up() error {
 		return fmt.Errorf("add VPN default route: %w", err)
 	}
 
+	// F-16a backstop: install an `unreachable default` in the VPN
+	// table with a high metric so it wins if and only if the real
+	// `default dev pvpn0` (metric 0) is gone. When pvpn0 is torn
+	// down — WG crash, link flap, kernel purge of a down-interface
+	// route, reconnect teardown — the metric-0 pvpn0 default
+	// disappears, the metric-9999 unreachable route takes over, and
+	// unmarked traffic continues to fail CLOSED inside the VPN table
+	// instead of falling through to main.
+	//
+	// Without this backstop, the policy-routing lookup at priority
+	// 9999 (`not fwmark → VPN_TABLE`) fails when VPN_TABLE has no
+	// default, and Linux policy routing falls through to the next
+	// matching rule. That would route unmarked traffic via main
+	// (priority 32766), defeating the entire F-13 / F-14 fix the
+	// moment pvpn0 is purged — and in particular, any FORWARDED
+	// traffic (Docker/Podman/KVM bridge/LXC container) would leak
+	// via the real NIC because the kill switch's output-only chain
+	// never inspects forwarded packets. See F-16 in vm-tests/FINDINGS.md.
+	//
+	// Unreachable routes carry no LinkIndex, so the kernel cannot
+	// purge them on an interface-down event. This route persists
+	// for the full lifetime of the VPN table.
+	unreachableDefault := &netlink.Route{
+		Dst:      allIPv4,
+		Table:    RouteTable,
+		Type:     unix.RTN_UNREACHABLE,
+		Priority: unreachableBackstopMetric,
+	}
+	if err := netlink.RouteAdd(unreachableDefault); err != nil {
+		// Non-fatal: the real default is still installed so normal
+		// operation works. Log loudly because the fail-closed
+		// guarantee is now weakened — a future tunnel flap may leak.
+		log.Printf("routes: unreachable v4 default backstop add failed: %v (F-16: forwarded traffic may leak if pvpn0 is torn down)", err)
+	}
+
 	// Blackhole IPv6 in the VPN table — Proton tunnels are IPv4-only.
 	// Without this, IPv6 DNS results (AAAA records) cause connections to
 	// hang because there's no IPv6 path through the tunnel. The blackhole
