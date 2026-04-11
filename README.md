@@ -11,15 +11,20 @@ Unlike the official Proton VPN Linux app, pVPN:
 
 ## Screenshots
 
-The CLI (useful from scripts, waybar, tmux status bars, etc.):
+<p align="center">
+  <img src="assets/tui-grid.png" alt="pVPN TUI — Status, Servers, Settings, Login"/>
+</p>
+
+Everything the TUI does is also scriptable via `pvpnctl` — useful for
+waybar, tmux status bars, cron jobs, or just CI smoke tests:
 
 ```console
 $ pvpnctl status
 Status:   Connected
-Server:   DE#42
+Server:   DE#905
 Country:  DE
-IP:       185.159.157.10
-Protocol: wireguard
+IP:       194.126.177.218
+Protocol: stealth
 Duration: 1h 23m 4s
 Upload:   128.4 MB
 Download: 2.1 GB
@@ -29,12 +34,8 @@ NAME           CC   LOAD  FEATURES
 --------------------------------------------------
 DE#1           DE     22%  P2P,Stream
 DE#2           DE     31%  P2P
-DE#42          DE     47%  P2P,Stream
+DE#905         DE     47%  P2P,Stream
 ```
-
-The TUI (`pvpn`) gives you the same daemon over a tabbed interface —
-Status, Servers, Settings — with live connection state, live byte counters,
-interactive server filters (`t`/`s`/`p`/`c`), and in-place settings editing.
 
 ## Features
 
