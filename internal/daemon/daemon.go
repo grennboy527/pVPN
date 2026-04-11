@@ -24,6 +24,16 @@ import (
 type Daemon struct {
 	mu sync.RWMutex
 
+	// connectMu serializes doConnect so two overlapping connect requests
+	// cannot race each other into an inconsistent state (F-11 regression
+	// guard). Without this, a second connect arriving while the first is
+	// still setting up the tunnel can stomp the first attempt's partial
+	// state and leave the daemon believing it's connected while the kill
+	// switch table is missing (verified reproducible pre-v0.2.1). d.mu
+	// (the data RWMutex) is deliberately NOT held for the full connect
+	// because cmdStatus acquires d.mu.RLock and must stay responsive.
+	connectMu sync.Mutex
+
 	cfg    *config.Config
 	client *api.Client
 	store  *api.SessionStore
@@ -40,6 +50,7 @@ type Daemon struct {
 
 	listener net.Listener
 	sleepMon *sleepMonitor
+	netMon   *networkMonitor
 	ctx      context.Context
 	cancel   context.CancelFunc
 }
@@ -95,11 +106,26 @@ func (d *Daemon) Run(socketPath string) error {
 
 	log.Printf("Daemon listening on %s", socketPath)
 
+	// Pin the API client's resolver to the IPs written on the last
+	// successful connect. At boot, the preboot kill switch blocks DNS
+	// egress, so the first API call would fail without this — see
+	// internal/vpn/preboot.go and api.Client.SetPinnedAPIIPs.
+	if pinned := vpn.LoadPinnedAPIIPs(); len(pinned) > 0 {
+		d.client.SetPinnedAPIIPs(pinned)
+		log.Printf("Pinned %d Proton API IP(s) from %s", len(pinned), "/var/lib/pvpn/api-ips.txt")
+	}
+
 	// Clean up any stale VPN state from a previous daemon instance
 	vpn.ForceCleanup()
 
 	// Monitor system suspend/resume to trigger VPN reconnection on wake
 	d.sleepMon = newSleepMonitor(d.onSystemWake)
+
+	// Monitor network link and address changes so a pulled cable /
+	// WiFi switch / DHCP renew triggers a reconnect check within
+	// ~500ms instead of waiting for the next WireGuard handshake
+	// poll (F-12 fix).
+	d.netMon = newNetworkMonitor(d.onNetworkChange)
 
 	// Try to restore session and load servers in background
 	go d.initSession()
@@ -127,6 +153,7 @@ func (d *Daemon) Run(socketPath string) error {
 func (d *Daemon) Stop() {
 	d.cancel()
 	d.sleepMon.Stop()
+	d.netMon.Stop()
 	if d.listener != nil {
 		d.listener.Close()
 	}
@@ -373,8 +400,10 @@ func (d *Daemon) cmdConnect(params json.RawMessage) *ipc.Response {
 	// Connect in background, return immediately. The doConnect context
 	// is derived from d.ctx so daemon shutdown cancels it, and capped
 	// at connectTimeout so a stuck attempt doesn't hang forever.
+	log.Printf("Connecting to %s (%s)...", server.Name, server.ExitCountry)
 	go func() {
 		if err := d.doConnect(server, protocol); err != nil {
+			log.Printf("Connect failed: %v", err)
 			d.broadcast(&ipc.Event{
 				Type: "state-changed",
 				Data: ipc.MarshalData(ipc.StateChangedData{
@@ -389,6 +418,13 @@ func (d *Daemon) cmdConnect(params json.RawMessage) *ipc.Response {
 }
 
 func (d *Daemon) doConnect(server *api.LogicalServer, protocol string) error {
+	// Serialize concurrent connect requests so two overlapping connects
+	// can't race (F-11). cmdStatus uses d.mu.RLock, so we can't hold
+	// the data lock for the ~3-second connect — this dedicated mutex is
+	// the minimum needed to make connect a critical section.
+	d.connectMu.Lock()
+	defer d.connectMu.Unlock()
+
 	d.mu.Lock()
 	// Disconnect existing if any
 	if d.conn != nil {
@@ -463,6 +499,20 @@ func (d *Daemon) doConnect(server *api.LogicalServer, protocol string) error {
 
 	if err := conn.Connect(ctx, server, kp, cert, certFeatures, d.cfg.Connection.KillSwitch, protocol, d.cfg.DNS.CustomDNS); err != nil {
 		return err
+	}
+
+	// F-11 regression guard: after a successful connect, if the user
+	// wanted a kill switch, verify it's actually loaded in the kernel.
+	// A disagreement between daemon state and kernel state here means
+	// something raced or crashed during setup and the user is not
+	// protected — tear the connection down and fail loudly rather than
+	// silently leave them unprotected.
+	if d.cfg.Connection.KillSwitch {
+		if err := vpn.VerifyKillSwitch(); err != nil {
+			log.Printf("Kill switch verification failed after connect: %v — tearing down", err)
+			conn.Disconnect()
+			return fmt.Errorf("kill switch verification failed post-connect: %w", err)
+		}
 	}
 
 	d.mu.Lock()
@@ -622,6 +672,30 @@ func (d *Daemon) onSystemWake() {
 	}
 
 	// Signal the connection's monitor/reconnect loop to act immediately
+	conn.TriggerReconnect()
+}
+
+// onNetworkChange is called by the network monitor when a link state
+// or address change is observed on the physical network (F-12 fix).
+// Behaves identically to onSystemWake — the connection layer is the
+// source of truth for whether a reconnect is actually needed, so we
+// just poke wakeCh and let monitorConnection decide.
+//
+// We also refresh the LAN snapshot before the reconnect check. When
+// the physical NIC goes down, the kernel purges LAN routes from our
+// VPN table, and when it comes back up it only repopulates main —
+// meaning even the "handshake is still healthy, no reconnect needed"
+// path needs to reinstall its LAN routes to keep local network
+// access working without tearing down the tunnel.
+func (d *Daemon) onNetworkChange() {
+	d.mu.RLock()
+	conn := d.conn
+	d.mu.RUnlock()
+
+	if conn == nil {
+		return
+	}
+	conn.RefreshLANSnapshot()
 	conn.TriggerReconnect()
 }
 

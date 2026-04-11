@@ -27,8 +27,11 @@ func TestBuildRules_ContainsServerIP(t *testing.T) {
 func TestBuildRules_ContainsInterfaceName(t *testing.T) {
 	rules := buildRules(net.ParseIP("1.2.3.4"))
 	// Must allow traffic OUT the VPN interface (otherwise the tunnel itself
-	// would be blocked by the default-drop policy).
-	wanted := `oif "` + InterfaceName + `" accept`
+	// would be blocked by the default-drop policy). F-9 regression guard:
+	// use `oifname` (string match) instead of `oif` (index match) so the
+	// rule can be loaded BEFORE the pvpn0 interface exists at Step 0 of the
+	// connect flow.
+	wanted := `oifname "` + InterfaceName + `" accept`
 	if !strings.Contains(rules, wanted) {
 		t.Errorf("ruleset does not allow VPN interface %q:\n%s", InterfaceName, rules)
 	}
@@ -36,7 +39,7 @@ func TestBuildRules_ContainsInterfaceName(t *testing.T) {
 
 func TestBuildRules_ContainsTableAndSet(t *testing.T) {
 	rules := buildRules(net.ParseIP("1.2.3.4"))
-	// The table and set names must match what Disable/AllowAPITraffic
+	// The table and set names must match what Disable / Enable / RefreshAPIIPs
 	// reference, otherwise those operations will fail at runtime.
 	if !strings.Contains(rules, "table inet "+tableName) {
 		t.Errorf("ruleset missing table %q:\n%s", tableName, rules)
@@ -65,7 +68,7 @@ func TestBuildRules_DefaultPolicyIsDrop(t *testing.T) {
 
 func TestBuildRules_AllowsLoopback(t *testing.T) {
 	rules := buildRules(net.ParseIP("1.2.3.4"))
-	if !strings.Contains(rules, `oif "lo" accept`) {
+	if !strings.Contains(rules, `oifname "lo" accept`) {
 		t.Errorf("ruleset does not allow loopback:\n%s", rules)
 	}
 }
@@ -97,24 +100,40 @@ func TestBuildRules_AllowsDHCP(t *testing.T) {
 	}
 }
 
-func TestBuildRules_AllowsDNSForReconnect(t *testing.T) {
+func TestBuildRules_NoBroadDNSAllow(t *testing.T) {
+	// F-1 regression guard. Pre-v0.2.1, the ruleset had unscoped
+	// `udp/tcp dport 53 accept` rules that let any local process send
+	// plaintext DNS to the ISP's resolver even with the kill switch
+	// engaged. DNS must instead flow over the tunnel (covered by
+	// `oifname "pvpn0" accept`) with Proton API IPs pre-seeded in the
+	// reconnect set for the reconnect path.
 	rules := buildRules(net.ParseIP("1.2.3.4"))
-	// DNS must be allowed so we can resolve the API hostname to refresh
-	// the certificate mid-reconnect without disabling the kill switch.
-	if !strings.Contains(rules, "udp dport 53 accept") {
-		t.Errorf("ruleset does not allow DNS/UDP:\n%s", rules)
-	}
-	if !strings.Contains(rules, "tcp dport 53 accept") {
-		t.Errorf("ruleset does not allow DNS/TCP:\n%s", rules)
+	for _, line := range strings.Split(rules, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue // doc comments in the ruleset are allowed
+		}
+		if strings.Contains(line, "dport 53 accept") && !strings.Contains(line, `oifname "`) {
+			t.Errorf("ruleset contains unscoped DNS allow %q (F-1 regression):\n%s", line, rules)
+		}
 	}
 }
 
-func TestBuildRules_AllowsEstablishedTraffic(t *testing.T) {
+func TestBuildRules_NoBroadEstablishedAllow(t *testing.T) {
+	// F-2 regression guard. Pre-v0.2.1, the ruleset unconditionally
+	// accepted `ct state established,related`, which let pre-existing
+	// TCP sockets keep exchanging traffic over the real NIC after the
+	// kill switch went up. In-tunnel return traffic is already covered
+	// by `oif "pvpn0" accept`, so no ct state rule is needed at all.
 	rules := buildRules(net.ParseIP("1.2.3.4"))
-	// Without `ct state established`, return packets on existing
-	// connections get dropped and nothing works.
-	if !strings.Contains(rules, "ct state established,related accept") {
-		t.Errorf("ruleset missing established-connection rule:\n%s", rules)
+	for _, line := range strings.Split(rules, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue // doc comment in the ruleset is allowed
+		}
+		if strings.Contains(line, "ct state established") {
+			t.Errorf("ruleset contains ct state established accept %q (F-2 regression):\n%s", line, rules)
+		}
 	}
 }
 

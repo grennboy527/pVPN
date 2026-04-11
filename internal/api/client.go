@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 )
@@ -23,6 +25,7 @@ const (
 // automatic token refresh, and retry logic.
 type Client struct {
 	httpClient *http.Client
+	transport  *http.Transport // kept so pinned hosts can be mutated after construction
 	baseURL    string
 
 	mu           sync.RWMutex
@@ -30,6 +33,12 @@ type Client struct {
 	accessToken  string
 	refreshToken string
 	loginEmail   string
+
+	// pinnedHosts maps a hostname to a list of IPs that should be used
+	// in place of DNS resolution. Used at early boot when DNS is blocked
+	// by the pre-boot kill switch (see vpn/preboot.go). Only the
+	// vpn-api.proton.me hostname is ever pinned in practice.
+	pinnedHosts map[string][]string
 
 	// Called when tokens are rotated so the session can be persisted.
 	OnTokenRefresh func(uid, accessToken, refreshToken string)
@@ -39,9 +48,53 @@ type Client struct {
 // is initialized with existing auth tokens.
 func NewClient(session *Session) *Client {
 	c := &Client{
-		httpClient: &http.Client{Timeout: DefaultTimeout},
-		baseURL:    DefaultBaseURL,
+		baseURL:     DefaultBaseURL,
+		pinnedHosts: make(map[string][]string),
 	}
+
+	// Custom transport whose DialContext consults the client's pinnedHosts
+	// map before falling back to the system resolver. This lets the daemon
+	// reach the Proton API at boot even while the kill switch blocks DNS
+	// egress — the pinned IPs get written to disk by pvpnd on every
+	// successful connect and re-loaded at startup.
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	c.transport = &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return dialer.DialContext(ctx, network, addr)
+			}
+			c.mu.RLock()
+			ips := c.pinnedHosts[host]
+			c.mu.RUnlock()
+			if len(ips) == 0 {
+				return dialer.DialContext(ctx, network, addr)
+			}
+			// Try each pinned IP in order — first one that connects wins.
+			var lastErr error
+			for _, ip := range ips {
+				conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip, port))
+				if err == nil {
+					return conn, nil
+				}
+				lastErr = err
+			}
+			return nil, fmt.Errorf("all pinned IPs for %s unreachable: %w", host, lastErr)
+		},
+		MaxIdleConns:          10,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		ForceAttemptHTTP2:     true,
+	}
+	c.httpClient = &http.Client{
+		Timeout:   DefaultTimeout,
+		Transport: c.transport,
+	}
+
 	if session != nil {
 		c.uid = session.UID
 		c.accessToken = session.AccessToken
@@ -49,6 +102,53 @@ func NewClient(session *Session) *Client {
 		c.loginEmail = session.LoginEmail
 	}
 	return c
+}
+
+// SetPinnedAPIIPs installs a list of pre-resolved IP addresses for the
+// Proton API hostname. Called by the daemon at startup after loading the
+// cached IPs from disk, so the first API request after boot does not
+// require DNS — which would be blocked by the pre-boot kill switch.
+// Safe to call with an empty list (clears pinning).
+func (c *Client) SetPinnedAPIIPs(ips []string) {
+	host := hostFromURL(c.baseURL)
+	if host == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(ips) == 0 {
+		delete(c.pinnedHosts, host)
+		return
+	}
+	// Copy so the caller can mutate their slice without affecting us.
+	copied := make([]string, len(ips))
+	copy(copied, ips)
+	c.pinnedHosts[host] = copied
+}
+
+// PinnedAPIIPs returns a snapshot of the currently pinned IPs for the API
+// hostname. Order matches the order given to SetPinnedAPIIPs.
+func (c *Client) PinnedAPIIPs() []string {
+	host := hostFromURL(c.baseURL)
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	ips := c.pinnedHosts[host]
+	if len(ips) == 0 {
+		return nil
+	}
+	out := make([]string, len(ips))
+	copy(out, ips)
+	return out
+}
+
+// hostFromURL extracts the hostname from a URL like "https://host/path".
+// Returns "" if the URL cannot be parsed.
+func hostFromURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }
 
 // SetSession updates the client's auth tokens.

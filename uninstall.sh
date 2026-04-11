@@ -58,6 +58,12 @@ if command -v systemctl >/dev/null 2>&1; then
         systemctl disable --now pvpnd 2>/dev/null || true
         removed_anything=1
     fi
+    if systemctl list-unit-files pvpn-preboot-killswitch.service 2>/dev/null \
+       | grep -q '^pvpn-preboot-killswitch.service'; then
+        log "Disabling pvpn-preboot-killswitch..."
+        systemctl disable pvpn-preboot-killswitch 2>/dev/null || true
+        removed_anything=1
+    fi
 fi
 
 # --- remove files ------------------------------------------------------------
@@ -76,10 +82,27 @@ if [ -e "${SERVICE_DIR}/pvpnd.service" ]; then
     removed_anything=1
 fi
 
+if [ -e "${SERVICE_DIR}/pvpn-preboot-killswitch.service" ]; then
+    log "Removing ${SERVICE_DIR}/pvpn-preboot-killswitch.service"
+    rm -f "${SERVICE_DIR}/pvpn-preboot-killswitch.service"
+    removed_anything=1
+fi
+
 if [ -d "${SERVICE_DIR}/pvpnd.service.d" ]; then
     log "Removing ${SERVICE_DIR}/pvpnd.service.d"
     rm -rf "${SERVICE_DIR}/pvpnd.service.d"
     removed_anything=1
+fi
+
+if [ -d "${SERVICE_DIR}/systemd-time-wait-sync.service.d" ]; then
+    # Only remove OUR drop-in, not the whole directory, in case some other
+    # package or the admin has their own overrides there.
+    if [ -e "${SERVICE_DIR}/systemd-time-wait-sync.service.d/pvpn-override.conf" ]; then
+        log "Removing systemd-time-wait-sync pvpn-override drop-in"
+        rm -f "${SERVICE_DIR}/systemd-time-wait-sync.service.d/pvpn-override.conf"
+        rmdir --ignore-fail-on-non-empty "${SERVICE_DIR}/systemd-time-wait-sync.service.d" 2>/dev/null || true
+        removed_anything=1
+    fi
 fi
 
 if command -v systemctl >/dev/null 2>&1; then
@@ -125,6 +148,19 @@ if [ "$PURGE" -eq 1 ]; then
         for h in /home/*; do
             [ -d "$h" ] && purge_home "$h"
         done
+    fi
+    # Remove the daemon state directory, which holds the preboot kill
+    # switch ruleset, pinned API IPs, and kill-switch state flag. Only
+    # purged on --purge so a regular uninstall can keep the state for a
+    # reinstall-later workflow.
+    if [ -d /var/lib/pvpn ]; then
+        log "Removing /var/lib/pvpn"
+        rm -rf /var/lib/pvpn
+    fi
+    # And tear down any live kill switch table so the unprivileged drop
+    # policy doesn't survive the uninstall.
+    if command -v nft >/dev/null 2>&1; then
+        nft delete table inet pvpn_killswitch 2>/dev/null || true
     fi
 fi
 

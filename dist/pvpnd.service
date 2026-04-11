@@ -5,10 +5,21 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# HOME must be set explicitly. systemd leaves $HOME unset by default, which
+# made the daemon's realHome() fall back to "" and write state to
+# /.config/pvpn and /.local/share/pvpn (relative to the daemon's cwd "/")
+# in pre-v0.2.1 (F-4 finding). We point HOME at StateDirectory rather than
+# /root so that ProtectHome=true below keeps blocking real user homes.
+Environment=HOME=/var/lib/pvpn
 ExecStart=/usr/local/bin/pvpnd
 Restart=on-failure
 RestartSec=5
 RuntimeDirectory=pvpn
+# systemd creates /var/lib/pvpn (mode 0700, owner root) on first start and
+# preserves it across restarts. This holds the daemon's config, session,
+# and preboot kill switch ruleset (F-3 fix).
+StateDirectory=pvpn
+StateDirectoryMode=0700
 
 # Network control permissions
 ReadWritePaths=/run/pvpn /etc/resolv.conf /etc/pvpn /var/lib/pvpn

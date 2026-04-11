@@ -1,0 +1,40 @@
+[Unit]
+Description=pVPN pre-boot kill switch (blocks egress until pvpnd takes over)
+Documentation=https://github.com/YourDoritos/pVPN#kill-switch
+# Run as early as possible. DefaultDependencies=no is mandatory to avoid
+# picking up basic.target dependencies that would schedule us after network.
+DefaultDependencies=no
+# Must run before anything that brings network interfaces up, so that the
+# very first packet leaving a real NIC (DHCP, RA, resolver queries, NTP,
+# snapd telemetry, NM captive-portal probe, apt auto-update, etc.) already
+# hits a default-drop policy.
+Before=network-pre.target
+Wants=network-pre.target
+# Only attempt to load the ruleset if the daemon has persisted one AND the
+# user had the kill switch enabled on the last session. Both files are
+# written by pvpnd on successful connect, and the state flag is removed
+# when the user explicitly disables the kill switch.
+ConditionPathExists=/var/lib/pvpn/preboot.nft
+ConditionPathExists=/var/lib/pvpn/killswitch.state
+# systemd-tmpfiles runs very early; we need /var/lib accessible.
+After=systemd-tmpfiles-setup.service
+# If the nft command fails (eg. nftables module not loaded yet), we don't
+# want the system to refuse to boot — a failed pre-boot kill switch should
+# degrade to "normal startup" and let pvpnd install its runtime rules.
+# Unit ordering: run before shutdown so killswitch is removed cleanly.
+Before=shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# /usr/sbin/nft is the canonical location on Debian, Ubuntu, Fedora, and
+# Arch (it's a symlink on Arch). If a distro ships nft elsewhere, this
+# unit is installed as-is and can be edited via `systemctl edit`.
+ExecStart=/usr/sbin/nft -f /var/lib/pvpn/preboot.nft
+# No ExecStop: pvpnd owns the live rules at runtime and decides when to
+# tear them down. Tearing down here would re-open the leak window when
+# pvpnd restarts.
+
+[Install]
+WantedBy=sysinit.target

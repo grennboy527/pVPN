@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os/exec"
 	"sync"
 	"time"
 
@@ -70,6 +71,7 @@ type Connection struct {
 	ks         *KillSwitch
 	la         *LocalAgent
 	portFwd    *PortForwarder
+	sysctl     *sysctlHardener // F-10: ARP/LAN leak defenses
 	info       ConnectionInfo
 	protocol   string // "wireguard" or "stealth"
 	onState    func(State)
@@ -249,6 +251,77 @@ func (c *Connection) doConnect(ctx context.Context, server *api.LogicalServer, k
 		return fmt.Errorf("invalid server IP: %s", ps.EntryIP)
 	}
 
+	// Step 0: Swap the preboot kill switch table for a runtime one that
+	// allows the NEW server IP, BEFORE bringing the tunnel up.
+	//
+	// Without this step, the preboot unit's table (loaded at early boot)
+	// is still in force here — and it only allows the previous
+	// connect's serverIP. Any handshake to a fresh server (different
+	// IP) would be dropped by the policy-drop chain and time out. We
+	// hit exactly this on Arch VM during F-3 verification: the
+	// preboot table had server 79.127.141.56 baked in, but "fastest"
+	// picked a stealth relay at 194.126.177.15, and the TCP dial for
+	// the handshake timed out because the kill switch blocked it.
+	//
+	// If the user has the kill switch enabled, we replace the table
+	// with one targeted at the new server (Enable is idempotent and
+	// atomically swaps). If the user disabled the kill switch but a
+	// preboot table is still sitting around (edge case: killswitch
+	// toggled off without a reconnect, or daemon crashed mid-flow),
+	// we tear it down here so the handshake can go through.
+	if enableKillSwitch {
+		ks, err := NewKillSwitch()
+		if err != nil {
+			return fmt.Errorf("create kill switch: %w", err)
+		}
+		// Prefer the pinned API IPs that pvpnd loaded at startup from
+		// /var/lib/pvpn/api-ips.txt — at this point in the flow DNS is
+		// still blocked by the preboot kill switch, so a ResolveAPIHosts
+		// call would try net.LookupHost and fail. The pinned list is the
+		// same one used by the HTTP client, so it is the freshest set we
+		// can get without going through the tunnel.
+		var apiIPs []net.IP
+		for _, s := range c.client.PinnedAPIIPs() {
+			if ip := net.ParseIP(s); ip != nil {
+				apiIPs = append(apiIPs, ip)
+			}
+		}
+		if len(apiIPs) == 0 {
+			// No pinned IPs (fresh install, never connected) — fall back
+			// to DNS. This works on the cold-install path because no
+			// preboot table exists yet, so DNS is unrestricted.
+			resolved, err := ResolveAPIHosts(c.client.BaseURL())
+			if err != nil {
+				log.Printf("kill switch: failed to pre-resolve API hosts: %v", err)
+			}
+			apiIPs = resolved
+		}
+		if err := ks.Enable(serverIP, apiIPs); err != nil {
+			return fmt.Errorf("enable kill switch: %w", err)
+		}
+		c.mu.Lock()
+		c.ks = ks
+		c.mu.Unlock()
+	} else {
+		// Kill switch not requested but preboot table may still exist.
+		// Tear it down so the handshake can dial out. Matches the
+		// cleanup path in ClearPrebootKillSwitch.
+		exec.Command("nft", "delete", "table", "inet", tableName).Run()
+		_ = ClearPrebootKillSwitch()
+	}
+
+	// Step 0.5: Apply sysctl hardening (F-10). This closes the ARP/LAN
+	// leak class where the tunnel IP can be discovered via ARP on the
+	// physical NIC. Apply is idempotent — on a reconnect the existing
+	// hardener is reused and the already-changed values are not
+	// re-saved (so Revert still restores the ORIGINAL pre-pVPN values).
+	c.mu.Lock()
+	if c.sysctl == nil {
+		c.sysctl = newSysctlHardener()
+		c.sysctl.Apply()
+	}
+	c.mu.Unlock()
+
 	// Step 1: Create tunnel (kernel WireGuard or stealth WireGuard-over-TLS)
 	var tunnelLink netlink.Link
 	var tunnelIfIndex int
@@ -344,18 +417,30 @@ func (c *Connection) doConnect(ctx context.Context, server *api.LogicalServer, k
 		return fmt.Errorf("setup DNS (%s): %w", c.dnsBackend.Name(), err)
 	}
 
-	// Step 5: Enable kill switch if requested
-	if enableKillSwitch {
-		ks, err := NewKillSwitch()
-		if err != nil {
-			return fmt.Errorf("create kill switch: %w", err)
+	// Step 5: Kill switch was already enabled at Step 0 (before tunnel
+	// up) if requested. Refresh the API IP set now that the tunnel is
+	// up — in-tunnel DNS can resolve vpn-api.proton.me to the current
+	// set of addresses, which we then use to update the reconnect set
+	// and rewrite /var/lib/pvpn/api-ips.txt for the next reboot. This
+	// keeps the pinned list from going stale if Proton rotates API IPs.
+	if enableKillSwitch && c.ks != nil {
+		if ips, err := ResolveAPIHosts(c.client.BaseURL()); err == nil && len(ips) > 0 {
+			if err := c.ks.RefreshAPIIPs(ips); err != nil {
+				log.Printf("kill switch: refresh api IPs: %v", err)
+			}
+			if err := WritePrebootKillSwitch(serverIP, ips); err != nil {
+				log.Printf("kill switch: rewrite preboot state: %v", err)
+			}
+			// Update the HTTP client's pinned set too so future API
+			// calls use the freshest IPs.
+			pinned := make([]string, 0, len(ips))
+			for _, ip := range ips {
+				if v4 := ip.To4(); v4 != nil {
+					pinned = append(pinned, v4.String())
+				}
+			}
+			c.client.SetPinnedAPIIPs(pinned)
 		}
-		if err := ks.Enable(serverIP); err != nil {
-			return fmt.Errorf("enable kill switch: %w", err)
-		}
-		c.mu.Lock()
-		c.ks = ks
-		c.mu.Unlock()
 	}
 
 	// Step 6: Start port forwarding if enabled (must be after full tunnel config)
@@ -413,7 +498,12 @@ func (c *Connection) SetKillSwitch(enable bool) error {
 		if err != nil {
 			return err
 		}
-		if err := ks.Enable(serverIP); err != nil {
+		// Pre-resolve API hosts before locking down (F-1 fix — see doConnect)
+		apiIPs, err := ResolveAPIHosts(c.client.BaseURL())
+		if err != nil {
+			log.Printf("kill switch: failed to pre-resolve API hosts: %v", err)
+		}
+		if err := ks.Enable(serverIP, apiIPs); err != nil {
 			return err
 		}
 		c.ks = ks
@@ -470,6 +560,24 @@ func (c *Connection) TriggerReconnect() {
 	case c.wakeCh <- struct{}{}:
 	default:
 	}
+}
+
+// RefreshLANSnapshot re-installs the LAN snapshot into the VPN
+// routing table. Called by the daemon's network-change handler after
+// a link flap: when the physical NIC goes down, the kernel purges
+// every route pointing at it from *every* table (including our
+// custom VPN table), and when it comes back up the kernel only
+// repopulates main — leaving LAN access broken even though the
+// tunnel handshake is still healthy. A cheap, idempotent re-snapshot
+// fixes it without forcing a full reconnect.
+func (c *Connection) RefreshLANSnapshot() {
+	c.mu.RLock()
+	routes := c.routes
+	c.mu.RUnlock()
+	if routes == nil {
+		return
+	}
+	routes.RefreshLANSnapshot()
 }
 
 // monitorConnection watches the WireGuard handshake and triggers
@@ -591,7 +699,6 @@ func (c *Connection) doReconnect(ctx context.Context) {
 
 	backoff := 2 * time.Second
 	maxBackoff := 2 * time.Minute
-	pinholeOpen := false
 
 retryLoop:
 	for attempt := 1; ; attempt++ {
@@ -614,21 +721,10 @@ retryLoop:
 		}
 		log.Printf("Reconnect: network is back")
 
-		// Open API pinhole after network is confirmed up (needs DNS).
-		// Only do this once — the pinhole persists across attempts.
-		if hasKillSwitch && !pinholeOpen {
-			c.mu.RLock()
-			activeKS := c.ks
-			c.mu.RUnlock()
-			if activeKS != nil {
-				if err := activeKS.AllowAPITraffic(c.client.BaseURL()); err != nil {
-					log.Printf("Reconnect: failed to open API pinhole: %v", err)
-				} else {
-					log.Printf("Reconnect: API pinhole opened")
-					pinholeOpen = true
-				}
-			}
-		}
+		// Note: no API pinhole dance here anymore. The kill switch's
+		// reconnect set was pre-seeded with resolved Proton API IPs at
+		// Enable time, so the API is reachable via @pvpn_reconnect without
+		// any DNS egress (pre-v0.2.1 F-1 fix).
 
 		log.Printf("Reconnect attempt %d...", attempt)
 		if c.onLog != nil {
@@ -694,13 +790,17 @@ func (c *Connection) reconnectAttempt(ctx context.Context, server *api.LogicalSe
 		return err
 	}
 
-	// Close the API pinhole now that we're connected
+	// Refresh the pinned API IPs now that the tunnel is up and in-tunnel
+	// DNS can return the current set. Best-effort — if it fails, we still
+	// have the pre-seeded IPs from the original Enable call.
 	if hasKillSwitch {
 		c.mu.RLock()
 		activeKS := c.ks
 		c.mu.RUnlock()
 		if activeKS != nil {
-			activeKS.BlockAPITraffic()
+			if ips, err := ResolveAPIHosts(c.client.BaseURL()); err == nil {
+				_ = activeKS.RefreshAPIIPs(ips)
+			}
 		}
 	}
 	return nil
@@ -795,6 +895,15 @@ func (c *Connection) teardown(keepKillSwitch ...bool) error {
 	sm := c.stealthMgr
 	dnsBackend := c.dnsBackend
 	ifIndex := c.tunnelIfIndex()
+	// Only revert sysctl hardening on FULL teardown (user disconnect
+	// or fatal error). Reconnect keeps the kill switch AND keeps the
+	// sysctl hardening so there is never a window where the tunnel IP
+	// can be ARP-probed on the physical NIC.
+	var sysctl *sysctlHardener
+	if !preserveKS {
+		sysctl = c.sysctl
+		c.sysctl = nil
+	}
 	c.mu.Unlock()
 
 	var firstErr error
@@ -854,6 +963,13 @@ func (c *Connection) teardown(keepKillSwitch ...bool) error {
 		c.mu.Lock()
 		c.wg = nil
 		c.mu.Unlock()
+	}
+
+	// Revert sysctl hardening last — after the tunnel interface is
+	// gone — so there is no window where the kernel accepts ARP for
+	// the old tunnel IP while the interface still technically exists.
+	if sysctl != nil {
+		sysctl.Revert()
 	}
 
 	return firstErr

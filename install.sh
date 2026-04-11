@@ -113,6 +113,10 @@ fi
 
 log "Downloading systemd unit..."
 curl -fsSL -o pvpnd.service "${RAW_URL}/dist/pvpnd.service" || die "Failed to fetch pvpnd.service"
+curl -fsSL -o pvpn-preboot-killswitch.service "${RAW_URL}/dist/pvpn-preboot-killswitch.service" \
+    || die "Failed to fetch pvpn-preboot-killswitch.service"
+curl -fsSL -o systemd-time-wait-sync-pvpn-override.conf "${RAW_URL}/dist/systemd-time-wait-sync-pvpn-override.conf" \
+    || die "Failed to fetch systemd-time-wait-sync drop-in"
 
 # --- install -----------------------------------------------------------------
 
@@ -172,8 +176,24 @@ if [ -n "$INVOKING_USER" ] && [ "$INVOKING_USER" != "root" ]; then
     fi
 fi
 
+log "Installing pvpn-preboot-killswitch.service..."
+install -Dm644 pvpn-preboot-killswitch.service "${SERVICE_DIR}/pvpn-preboot-killswitch.service"
+
+log "Installing systemd-time-wait-sync drop-in (F-5 workaround)..."
+# The drop-in caps systemd-time-wait-sync's TimeoutStartSec so the
+# preboot kill switch (which blocks NTP by design) doesn't hang the
+# boot for the service's default 2-minute wait. Only installed, never
+# enabled — it's a .d drop-in that only takes effect if the base unit
+# is enabled by the distro.
+install -Dm644 systemd-time-wait-sync-pvpn-override.conf \
+    "${SERVICE_DIR}/systemd-time-wait-sync.service.d/pvpn-override.conf"
+
 log "Enabling and starting pvpnd..."
 systemctl daemon-reload
+# The preboot unit is enabled unconditionally — it self-gates at boot on
+# ConditionPathExists=/var/lib/pvpn/killswitch.state, so enabling it is
+# a no-op until the user actually turns the kill switch on via the TUI.
+systemctl enable pvpn-preboot-killswitch.service 2>/dev/null || true
 systemctl enable --now pvpnd
 
 # --- post-install hints ------------------------------------------------------
