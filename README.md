@@ -9,6 +9,33 @@ Unlike the official Proton VPN Linux app, pVPN:
 - **Supports Stealth protocol** (WireGuard-over-TLS) — bypasses DPI and firewalls
 - **Runs as a lightweight daemon** — no Electron, no Python, just Go binaries
 
+## Screenshots
+
+The CLI (useful from scripts, waybar, tmux status bars, etc.):
+
+```console
+$ pvpnctl status
+Status:   Connected
+Server:   DE#42
+Country:  DE
+IP:       185.159.157.10
+Protocol: wireguard
+Duration: 1h 23m 4s
+Upload:   128.4 MB
+Download: 2.1 GB
+
+$ pvpnctl servers DE | head -5
+NAME           CC   LOAD  FEATURES
+--------------------------------------------------
+DE#1           DE     22%  P2P,Stream
+DE#2           DE     31%  P2P
+DE#42          DE     47%  P2P,Stream
+```
+
+The TUI (`pvpn`) gives you the same daemon over a tabbed interface —
+Status, Servers, Settings — with live connection state, live byte counters,
+interactive server filters (`t`/`s`/`p`/`c`), and in-place settings editing.
+
 ## Features
 
 - Daemon + client architecture (VPN persists when TUI closes)
@@ -172,7 +199,7 @@ Toggle features from the settings tab -- changes apply on next connection:
 - **Port Forwarding** -- get an inbound port (displayed in status tab)
 - **NetShield** -- block malware, ads, and trackers at DNS level
 
-Custom DNS can be configured in `~/.config/pvpn/config.toml`:
+Custom DNS can be set from the Settings tab in the TUI (select the **DNS** row, press Enter, type your servers), or edited directly in `~/.config/pvpn/config.toml`:
 
 ```toml
 [dns]
