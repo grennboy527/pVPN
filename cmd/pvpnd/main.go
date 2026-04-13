@@ -2,9 +2,12 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
+	"os/user"
+	"path/filepath"
 	"syscall"
 
 	"github.com/YourDoritos/pvpn/internal/api"
@@ -44,10 +47,14 @@ func printHelp() {
 	fmt.Println("kill switch. Must run as root (or with CAP_NET_ADMIN). Normally")
 	fmt.Println("started via systemd; see dist/pvpnd.service.")
 	fmt.Println()
+	fmt.Println("Paths:")
+	fmt.Printf("  Config:   %s\n", config.ConfigFile())
+	fmt.Printf("  Data:     %s\n", config.DataDir())
+	fmt.Printf("  Session:  %s\n", config.SessionFile())
+	fmt.Println()
 	fmt.Println("Environment:")
 	fmt.Println("  PVPN_SOCKET     Override the IPC socket path")
 	fmt.Println("                  (default: /run/pvpn/pvpn.sock)")
-	fmt.Println("  SUDO_USER       Username whose ~/.config/pvpn to load config from")
 	fmt.Println()
 	fmt.Println("Options:")
 	fmt.Println("  -v, --version   Print version and exit")
@@ -62,9 +69,12 @@ func run() error {
 	log.SetPrefix("pvpnd: ")
 	log.SetFlags(log.Ltime)
 
-	if err := config.EnsureDirs(); err != nil {
+	if err := config.EnsureSystemDirs(); err != nil {
 		return fmt.Errorf("setup directories: %w", err)
 	}
+
+	// Migrate config and session from old user-home paths (pre-v0.3.0).
+	migrateFromHome()
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -119,4 +129,63 @@ func run() error {
 	}
 
 	return d.Run(socketPath)
+}
+
+// migrateFromHome copies config.toml and session.enc from the old
+// user-home locations (~/.config/pvpn, ~/.local/share/pvpn) to the
+// new system paths (/etc/pvpn, /var/lib/pvpn). Only runs once — if
+// the system files already exist, migration is skipped. Old files are
+// left in place so the user can clean up manually.
+func migrateFromHome() {
+	sudoUser := os.Getenv("SUDO_USER")
+	if sudoUser == "" {
+		return
+	}
+	u, err := user.Lookup(sudoUser)
+	if err != nil {
+		return
+	}
+
+	migrations := []struct {
+		oldPath string
+		newPath string
+	}{
+		{
+			filepath.Join(u.HomeDir, ".config", "pvpn", "config.toml"),
+			config.ConfigFile(),
+		},
+		{
+			filepath.Join(u.HomeDir, ".local", "share", "pvpn", "session.enc"),
+			config.SessionFile(),
+		},
+	}
+
+	for _, m := range migrations {
+		// Skip if destination already exists
+		if _, err := os.Stat(m.newPath); err == nil {
+			continue
+		}
+		// Skip if source doesn't exist
+		src, err := os.Open(m.oldPath)
+		if err != nil {
+			continue
+		}
+		dst, err := os.Create(m.newPath)
+		if err != nil {
+			src.Close()
+			log.Printf("Migration: cannot create %s: %v", m.newPath, err)
+			continue
+		}
+		if _, err := io.Copy(dst, src); err != nil {
+			src.Close()
+			dst.Close()
+			os.Remove(m.newPath)
+			log.Printf("Migration: cannot copy %s → %s: %v", m.oldPath, m.newPath, err)
+			continue
+		}
+		src.Close()
+		dst.Close()
+		config.FixFileOwnership(m.newPath)
+		log.Printf("Migrated %s → %s", m.oldPath, m.newPath)
+	}
 }

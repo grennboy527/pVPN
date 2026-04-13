@@ -11,7 +11,7 @@ RestartSec=5
 RuntimeDirectory=pvpn
 
 # Network control permissions
-ReadWritePaths=/run/pvpn /etc/resolv.conf
+ReadWritePaths=/run/pvpn /etc/resolv.conf /etc/pvpn /var/lib/pvpn
 
 # --- Conservative sandboxing ---
 # These are known-safe for a WireGuard-managing root daemon. Stronger

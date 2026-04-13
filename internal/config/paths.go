@@ -8,35 +8,30 @@ import (
 	"strconv"
 )
 
-const appName = "pvpn"
+const (
+	appName = "pvpn"
 
-// realHome returns the real user's home directory, even when running under sudo.
-// sudo changes HOME to /root, but we want the invoking user's home.
-func realHome() string {
-	// If SUDO_USER is set, we're running under sudo — use their home
-	if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" {
-		if u, err := user.Lookup(sudoUser); err == nil {
-			return u.HomeDir
-		}
-	}
-	home, _ := os.UserHomeDir()
-	return home
-}
+	// SocketGroup is the Unix group that gates access to config, data,
+	// and the IPC socket. Both the daemon and unprivileged TUI users
+	// must share this group.
+	SocketGroup = "pvpn"
+)
 
-// ConfigDir returns the configuration directory (~/.config/pvpn).
+// configDir and dataDir hold the resolved paths. They default to the
+// system locations and can be overridden in tests via setTestDirs.
+var (
+	configDir = "/etc/pvpn"
+	dataDir   = "/var/lib/pvpn"
+)
+
+// ConfigDir returns the configuration directory (/etc/pvpn).
 func ConfigDir() string {
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, appName)
-	}
-	return filepath.Join(realHome(), ".config", appName)
+	return configDir
 }
 
-// DataDir returns the data directory (~/.local/share/pvpn).
+// DataDir returns the data directory (/var/lib/pvpn).
 func DataDir() string {
-	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
-		return filepath.Join(xdg, appName)
-	}
-	return filepath.Join(realHome(), ".local", "share", appName)
+	return dataDir
 }
 
 // DebugPaths prints the resolved paths (for troubleshooting).
@@ -54,42 +49,78 @@ func SessionFile() string {
 	return filepath.Join(DataDir(), "session.enc")
 }
 
-// EnsureDirs creates the config and data directories if they don't exist.
-// If running as root with SUDO_USER set, directories and files are chowned
-// to the real user so the unprivileged TUI can read them.
-func EnsureDirs() error {
+// EnsureSystemDirs creates the config and data directories with root:pvpn
+// ownership and mode 0750. Must be called as root (typically by the daemon).
+func EnsureSystemDirs() error {
+	grp, err := user.LookupGroup(SocketGroup)
+	if err != nil {
+		return fmt.Errorf("lookup group %q: %w (create it with: groupadd -r %s)", SocketGroup, err, SocketGroup)
+	}
+	gid, err := strconv.Atoi(grp.Gid)
+	if err != nil {
+		return fmt.Errorf("parse gid %q: %w", grp.Gid, err)
+	}
+
 	dirs := []string{ConfigDir(), DataDir()}
 	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0700); err != nil {
-			return err
+		if err := os.MkdirAll(dir, 0750); err != nil {
+			return fmt.Errorf("create %s: %w", dir, err)
+		}
+		if err := os.Chown(dir, 0, gid); err != nil {
+			return fmt.Errorf("chown %s: %w", dir, err)
+		}
+		if err := os.Chmod(dir, 0750); err != nil {
+			return fmt.Errorf("chmod %s: %w", dir, err)
 		}
 	}
-	// If running as root, fix ownership so the real user can access
-	fixOwnership(dirs...)
 	return nil
 }
 
-// FixFileOwnership chowns the given paths to the real user (SUDO_USER).
-// No-op if not running as root or SUDO_USER is not set.
-func FixFileOwnership(paths ...string) {
-	fixOwnership(paths...)
+// EnsureDirs verifies that the config and data directories exist and are
+// accessible. Called by the TUI (unprivileged). Returns a helpful error
+// if directories are missing or inaccessible.
+func EnsureDirs() error {
+	for _, dir := range []string{ConfigDir(), DataDir()} {
+		info, err := os.Stat(dir)
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%s does not exist — is pvpnd running? (sudo systemctl start pvpnd)", dir)
+		}
+		if err != nil {
+			return fmt.Errorf("access %s: %w — are you in the %q group?", dir, err, SocketGroup)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%s is not a directory", dir)
+		}
+		// Verify write access by trying to create a temp file
+		tmp := filepath.Join(dir, ".access-check")
+		f, err := os.Create(tmp)
+		if err != nil {
+			return fmt.Errorf("cannot write to %s: %w — are you in the %q group?", dir, err, SocketGroup)
+		}
+		f.Close()
+		os.Remove(tmp)
+	}
+	return nil
 }
 
-func fixOwnership(paths ...string) {
+// FixFileOwnership sets the given paths to root:pvpn with mode 0660,
+// so both the daemon and users in the pvpn group can access them.
+// No-op if not running as root or the pvpn group doesn't exist.
+func FixFileOwnership(paths ...string) {
+	fixGroupPermissions(paths...)
+}
+
+func fixGroupPermissions(paths ...string) {
 	if os.Getuid() != 0 {
 		return
 	}
-	sudoUser := os.Getenv("SUDO_USER")
-	if sudoUser == "" {
-		return
-	}
-	u, err := user.Lookup(sudoUser)
+	grp, err := user.LookupGroup(SocketGroup)
 	if err != nil {
 		return
 	}
-	uid, _ := strconv.Atoi(u.Uid)
-	gid, _ := strconv.Atoi(u.Gid)
+	gid, _ := strconv.Atoi(grp.Gid)
 	for _, p := range paths {
-		os.Chown(p, uid, gid)
+		os.Chown(p, 0, gid)
+		os.Chmod(p, 0660)
 	}
 }

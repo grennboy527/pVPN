@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/YourDoritos/pvpn/internal/config"
 	"golang.org/x/crypto/argon2"
@@ -36,12 +35,6 @@ func NewSessionStore(path string) (*SessionStore, error) {
 		return nil, fmt.Errorf("derive encryption key: %w", err)
 	}
 
-	// Ensure directory exists
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return nil, fmt.Errorf("create session directory: %w", err)
-	}
-
 	store := &SessionStore{path: path}
 	copy(store.key[:], key)
 	return store, nil
@@ -65,7 +58,7 @@ func (s *SessionStore) Save(session *Session) error {
 
 	// Write atomically via temp file
 	tmpPath := s.path + ".tmp"
-	if err := os.WriteFile(tmpPath, encrypted, 0600); err != nil {
+	if err := os.WriteFile(tmpPath, encrypted, 0660); err != nil {
 		return fmt.Errorf("write session file: %w", err)
 	}
 	if err := os.Rename(tmpPath, s.path); err != nil {

@@ -20,11 +20,6 @@ import (
 	"github.com/YourDoritos/pvpn/internal/vpn"
 )
 
-// socketGroup is the Unix group whose members may talk to the daemon
-// via the IPC socket. If the group does not exist on the host, the
-// daemon falls back to root-only socket permissions (0600).
-const socketGroup = "pvpn"
-
 // Daemon is the privileged VPN service.
 type Daemon struct {
 	mu sync.RWMutex
@@ -82,19 +77,19 @@ func (d *Daemon) Run(socketPath string) error {
 	// doesn't exist (fresh install without the group, dev/test loops),
 	// fall back to root-only (0600) — daemon still works, but only root
 	// can talk to it until the group is created.
-	if grp, err := user.LookupGroup(socketGroup); err == nil {
+	if grp, err := user.LookupGroup(config.SocketGroup); err == nil {
 		gid, convErr := strconv.Atoi(grp.Gid)
 		if convErr != nil {
 			log.Printf("warning: parse pvpn gid %q: %v — falling back to root-only socket", grp.Gid, convErr)
 			os.Chmod(socketPath, 0600)
 		} else if err := os.Chown(socketPath, 0, gid); err != nil {
-			log.Printf("warning: chown socket to root:%s: %v — falling back to root-only", socketGroup, err)
+			log.Printf("warning: chown socket to root:%s: %v — falling back to root-only", config.SocketGroup, err)
 			os.Chmod(socketPath, 0600)
 		} else {
 			os.Chmod(socketPath, 0660)
 		}
 	} else {
-		log.Printf("warning: group %q not found — IPC socket restricted to root. Create the group and add your user to enable unprivileged clients.", socketGroup)
+		log.Printf("warning: group %q not found — IPC socket restricted to root. Create the group and add your user to enable unprivileged clients.", config.SocketGroup)
 		os.Chmod(socketPath, 0600)
 	}
 

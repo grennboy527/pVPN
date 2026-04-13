@@ -122,7 +122,7 @@ if ! getent group "$GROUP" >/dev/null; then
 fi
 
 # Add the invoking user (if invoked via sudo) to the pvpn group so they
-# can talk to the daemon without re-login via newgrp.
+# can talk to the daemon and access config/data files.
 INVOKING_USER="${SUDO_USER:-}"
 if [ -n "$INVOKING_USER" ] && [ "$INVOKING_USER" != "root" ]; then
     if ! id -nG "$INVOKING_USER" | tr ' ' '\n' | grep -qx "$GROUP"; then
@@ -136,19 +136,41 @@ install -Dm755 pvpn    "${BINDIR}/pvpn"
 install -Dm755 pvpnd   "${BINDIR}/pvpnd"
 install -Dm755 pvpnctl "${BINDIR}/pvpnctl"
 
+log "Creating system directories..."
+install -dm750 -o root -g "$GROUP" /etc/pvpn
+install -dm750 -o root -g "$GROUP" /var/lib/pvpn
+
 log "Installing systemd unit..."
-# Rewrite ExecStart to the actual bindir and inject SUDO_USER for the
-# invoking user (matches what Makefile and AUR hook do).
-if [ -n "$INVOKING_USER" ] && [ "$INVOKING_USER" != "root" ]; then
-    sed -e "s|^ExecStart=.*|ExecStart=${BINDIR}/pvpnd|" \
-        -e "/^Environment=SUDO_USER=/d" \
-        -e "/^\[Service\]/a Environment=SUDO_USER=${INVOKING_USER}" \
-        pvpnd.service > "${SERVICE_DIR}/pvpnd.service"
-else
-    sed -e "s|^ExecStart=.*|ExecStart=${BINDIR}/pvpnd|" \
-        pvpnd.service > "${SERVICE_DIR}/pvpnd.service"
-fi
+sed -e "s|^ExecStart=.*|ExecStart=${BINDIR}/pvpnd|" \
+    pvpnd.service > "${SERVICE_DIR}/pvpnd.service"
 chmod 644 "${SERVICE_DIR}/pvpnd.service"
+
+# Clean up old SUDO_USER drop-in from pre-v0.3.0 installs
+if [ -f "${SERVICE_DIR}/pvpnd.service.d/user.conf" ]; then
+    log "Removing obsolete SUDO_USER drop-in..."
+    rm -f "${SERVICE_DIR}/pvpnd.service.d/user.conf"
+    rmdir "${SERVICE_DIR}/pvpnd.service.d" 2>/dev/null || true
+fi
+
+# Migrate config and session from old user-home paths
+if [ -n "$INVOKING_USER" ] && [ "$INVOKING_USER" != "root" ]; then
+    USER_HOME=$(eval echo "~${INVOKING_USER}")
+    OLD_CONFIG="${USER_HOME}/.config/pvpn/config.toml"
+    OLD_SESSION="${USER_HOME}/.local/share/pvpn/session.enc"
+
+    if [ ! -f /etc/pvpn/config.toml ] && [ -f "$OLD_CONFIG" ]; then
+        log "Migrating config from ${OLD_CONFIG}..."
+        cp "$OLD_CONFIG" /etc/pvpn/config.toml
+        chown root:"$GROUP" /etc/pvpn/config.toml
+        chmod 0660 /etc/pvpn/config.toml
+    fi
+    if [ ! -f /var/lib/pvpn/session.enc ] && [ -f "$OLD_SESSION" ]; then
+        log "Migrating session from ${OLD_SESSION}..."
+        cp "$OLD_SESSION" /var/lib/pvpn/session.enc
+        chown root:"$GROUP" /var/lib/pvpn/session.enc
+        chmod 0660 /var/lib/pvpn/session.enc
+    fi
+fi
 
 log "Enabling and starting pvpnd..."
 systemctl daemon-reload
@@ -167,6 +189,8 @@ Next steps:
     pvpnctl status
 
 Binaries: ${BINDIR}/{pvpn,pvpnd,pvpnctl}
+Config:   /etc/pvpn/config.toml
+Data:     /var/lib/pvpn/
 Service:  ${SERVICE_DIR}/pvpnd.service
 Uninstall:
   curl -fsSL https://raw.githubusercontent.com/${REPO}/main/uninstall.sh | sudo bash

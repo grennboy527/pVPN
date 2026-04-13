@@ -50,7 +50,7 @@ func printHelp() {
 
 func run() error {
 	if err := config.EnsureDirs(); err != nil {
-		return fmt.Errorf("setup directories: %w", err)
+		return err
 	}
 
 	cfg, err := config.Load()

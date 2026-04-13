@@ -112,7 +112,7 @@ func (c *Config) Save() error {
 	}
 
 	path := ConfigFile()
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0660)
 	if err != nil {
 		return fmt.Errorf("open config file: %w", err)
 	}
