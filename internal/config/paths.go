@@ -8,14 +8,10 @@ import (
 	"strconv"
 )
 
-const (
-	appName = "pvpn"
-
-	// SocketGroup is the Unix group that gates access to config, data,
-	// and the IPC socket. Both the daemon and unprivileged TUI users
-	// must share this group.
-	SocketGroup = "pvpn"
-)
+// SocketGroup is the Unix group that gates access to config, data,
+// and the IPC socket. Both the daemon and unprivileged TUI users
+// must share this group.
+const SocketGroup = "pvpn"
 
 // configDir and dataDir hold the resolved paths. They default to the
 // system locations and can be overridden in tests via setTestDirs.

@@ -83,7 +83,7 @@ func newNetworkMonitor(onChange func()) *networkMonitor {
 				}
 				// Filter to events that actually matter: link
 				// becoming up, becoming down, or losing carrier.
-				flags := u.IfInfomsg.Flags
+				flags := u.Flags
 				isUp := flags&unix.IFF_UP != 0
 				hasCarrier := flags&unix.IFF_LOWER_UP != 0
 				log.Printf("Network monitor: link %q state=%s carrier=%v",
