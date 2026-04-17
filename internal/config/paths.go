@@ -47,6 +47,8 @@ func SessionFile() string {
 
 // EnsureSystemDirs creates the config and data directories with root:pvpn
 // ownership and mode 0750. Must be called as root (typically by the daemon).
+// Also self-heals ownership on existing config.toml and session.enc so they
+// stay root:pvpn 0660 across upgrades.
 func EnsureSystemDirs() error {
 	grp, err := user.LookupGroup(SocketGroup)
 	if err != nil {
@@ -69,12 +71,22 @@ func EnsureSystemDirs() error {
 			return fmt.Errorf("chmod %s: %w", dir, err)
 		}
 	}
+
+	// Self-heal ownership of shared files so TUI (pvpn group) can read them
+	for _, p := range []string{ConfigFile(), SessionFile()} {
+		if _, err := os.Stat(p); err == nil {
+			os.Chown(p, 0, gid)
+			os.Chmod(p, 0660)
+		}
+	}
+
 	return nil
 }
 
 // EnsureDirs verifies that the config and data directories exist and are
-// accessible. Called by the TUI (unprivileged). Returns a helpful error
-// if directories are missing or inaccessible.
+// readable. Called by the TUI (unprivileged). Returns a helpful error if
+// directories are missing or inaccessible. Does NOT verify write access —
+// the shared config file is group-writable even when the directory is not.
 func EnsureDirs() error {
 	for _, dir := range []string{ConfigDir(), DataDir()} {
 		info, err := os.Stat(dir)
@@ -87,14 +99,6 @@ func EnsureDirs() error {
 		if !info.IsDir() {
 			return fmt.Errorf("%s is not a directory", dir)
 		}
-		// Verify write access by trying to create a temp file
-		tmp := filepath.Join(dir, ".access-check")
-		f, err := os.Create(tmp)
-		if err != nil {
-			return fmt.Errorf("cannot write to %s: %w — are you in the %q group?", dir, err, SocketGroup)
-		}
-		f.Close()
-		os.Remove(tmp)
 	}
 	return nil
 }
